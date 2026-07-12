@@ -4,11 +4,12 @@
 module.exports = {
   expo: {
     name: 'HomePlanner',
-    slug: 'homeplanner',
+    slug: 'spatia3d-space-designer',
     version: '1.0.0',
     orientation: 'portrait',
     icon: './assets/icon.png',
     scheme: 'homeplanner',
+    owner: 'basit5000',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
     splash: {
@@ -45,7 +46,7 @@ module.exports = {
         {
           // Replace with your real AdMob app IDs before production.
           androidAppId: 'ca-app-pub-3940256099942544~3347511713',
-          iosAppId: 'ca-app-pub-3940256099942544~1458002511',
+          // iosAppId: 'ca-app-pub-3940256099942544~1458002511',
           userTrackingUsageDescription:
             'This lets us show you more relevant ads to keep HomePlanner free.',
         },
