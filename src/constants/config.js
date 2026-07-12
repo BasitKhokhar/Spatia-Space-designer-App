@@ -12,5 +12,9 @@ export const CREDITS = {
   },
 };
 
-// Empty string = use the local-first stub. Set a URL to attach a real backend.
-export const API_BASE_URL = process.env.API_BASE_URL || '';
+// Empty string = use the local-first stub. Set EXPO_PUBLIC_API_BASE_URL (e.g. in
+// a .env at the project root, or via EAS) to attach the real backend, e.g.
+//   EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:5004   (Android emulator -> host)
+//   EXPO_PUBLIC_API_BASE_URL=https://api.homedesigner.app
+export const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || '';
