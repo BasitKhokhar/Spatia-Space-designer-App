@@ -39,7 +39,8 @@ function Bullet({ icon, children }) {
 export default function DeleteAccountScreen({ navigation }) {
   const { colors, radius, fonts } = useTheme();
   const [confirm, setConfirm] = useState('');
-  const logout = useAuthStore((s) => s.logout);
+  const [busy, setBusy] = useState(false);
+  const deleteAccount = useAuthStore((s) => s.deleteAccount);
   const resetProjects = useProjectsStore((s) => s.reset);
   const resetCredits = useCreditsStore((s) => s.reset);
   const resetSettings = useSettingsStore((s) => s.reset);
@@ -47,14 +48,19 @@ export default function DeleteAccountScreen({ navigation }) {
 
   const canDelete = confirm.trim().toUpperCase() === 'DELETE';
 
-  const onDelete = () => {
-    // Local wipe. When a backend is attached, also call the account-deletion
-    // endpoint (Play policy also requires a web-accessible deletion path).
-    resetProjects();
-    resetCredits();
-    resetSettings();
-    clearAllStorage();
-    logout();
+  const onDelete = async () => {
+    setBusy(true);
+    // Calls the backend account-deletion endpoint (soft-delete + token revoke)
+    // when remote, then wipes local state. Play policy also requires a
+    // web-accessible deletion path — served by the backend's legal pages.
+    try {
+      await deleteAccount();
+    } finally {
+      resetProjects();
+      resetCredits();
+      resetSettings();
+      clearAllStorage();
+    }
   };
 
   return (
@@ -111,7 +117,7 @@ export default function DeleteAccountScreen({ navigation }) {
         </View>
 
         <View style={{ marginTop: 'auto', marginBottom: 34, gap: 12 }}>
-          <Button title="Permanently Delete Account" variant="danger" disabled={!canDelete} onPress={onDelete} />
+          <Button title="Permanently Delete Account" variant="danger" disabled={!canDelete} loading={busy} onPress={onDelete} />
           <Button title="Cancel" variant="secondary" onPress={() => navigation.goBack()} />
         </View>
       </View>

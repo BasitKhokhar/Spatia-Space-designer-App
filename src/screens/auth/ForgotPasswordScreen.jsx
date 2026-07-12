@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { View, Alert } from 'react-native';
 
 import Screen from '@/components/ui/Screen';
 import Text from '@/components/ui/Text';
@@ -9,10 +9,25 @@ import HeaderBar from '@/components/ui/HeaderBar';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { ROUTES } from '@/navigation/routes';
+import { isRemote } from '@/services/api/client';
+import { authApi } from '@/services/api/authApi';
 
 export default function ForgotPasswordScreen({ navigation }) {
   const { colors, radius } = useTheme();
   const [email, setEmail] = useState('alex@studio.com');
+  const [loading, setLoading] = useState(false);
+
+  const onSend = async () => {
+    setLoading(true);
+    try {
+      if (isRemote()) await authApi.forgotPasswordRequest(email);
+      navigation.navigate(ROUTES.otp, { email });
+    } catch (e) {
+      Alert.alert('Could not send code', e?.message || 'Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <Screen padded>
@@ -40,11 +55,7 @@ export default function ForgotPasswordScreen({ navigation }) {
 
       <View style={{ marginTop: 34 }}>
         <Input label="Email" icon="mail" value={email} onChangeText={setEmail} keyboardType="email-address" />
-        <Button
-          title="Send Reset Link"
-          onPress={() => navigation.navigate(ROUTES.otp, { email })}
-          style={{ marginTop: 22 }}
-        />
+        <Button title="Send Reset Code" onPress={onSend} loading={loading} style={{ marginTop: 22 }} />
       </View>
 
       <Text

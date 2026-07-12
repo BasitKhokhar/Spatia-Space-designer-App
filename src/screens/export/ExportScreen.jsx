@@ -44,7 +44,7 @@ export default function ExportScreen({ navigation }) {
       if (selected === 'png') await exportPng(previewRef, project.name);
       else if (selected === 'pdf') await exportPdf(project);
       else await exportObj(project);
-      spend(option.cost);
+      await spend(option.cost, selected);
       incrementExports();
       Alert.alert('Export complete', `${option.title} exported successfully.`);
     } catch (e) {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, KeyboardAvoidingView, Platform, Pressable } from 'react-native';
+import { View, KeyboardAvoidingView, Platform, Pressable, Alert } from 'react-native';
 
 import Screen from '@/components/ui/Screen';
 import Text from '@/components/ui/Text';
@@ -25,7 +25,14 @@ export default function SignupScreen({ navigation }) {
   const onSubmit = async () => {
     if (!canSubmit) return;
     setLoading(true);
-    await signup(name, email);
+    try {
+      await signup(name, email, password);
+      // RootNavigator swaps to the tab stack once isAuthenticated flips.
+    } catch (e) {
+      Alert.alert('Sign up failed', e?.message || 'Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

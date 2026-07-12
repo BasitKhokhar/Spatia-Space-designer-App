@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { View } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -5,6 +6,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useTheme } from '@/theme/useTheme';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useProjectsStore } from '@/store/useProjectsStore';
+import { useCreditsStore } from '@/store/useCreditsStore';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { linking } from './linking';
 import { ROUTES } from './routes';
@@ -40,7 +43,18 @@ export default function RootNavigator() {
   const { colors, isDark } = useTheme();
   const onboardingComplete = useSettingsStore((s) => s.onboardingComplete);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const hydrateProjects = useProjectsStore((s) => s.hydrate);
+  const refreshCredits = useCreditsStore((s) => s.refresh);
   const isConnected = useNetworkStatus();
+
+  // Once signed in, pull the authoritative projects + credit state from the
+  // backend (no-ops when running local-first).
+  useEffect(() => {
+    if (isAuthenticated) {
+      hydrateProjects();
+      refreshCredits();
+    }
+  }, [isAuthenticated, hydrateProjects, refreshCredits]);
 
   const navTheme = {
     ...(isDark ? DarkTheme : DefaultTheme),

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Pressable, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 
 import Screen from '@/components/ui/Screen';
 import Text from '@/components/ui/Text';
@@ -46,14 +46,25 @@ export default function LoginScreen({ navigation }) {
 
   const onLogin = async () => {
     setLoading(true);
-    await login(email, password);
-    // RootNavigator swaps to the tab stack once isAuthenticated flips.
+    try {
+      await login(email, password);
+      // RootNavigator swaps to the tab stack once isAuthenticated flips.
+    } catch (e) {
+      Alert.alert('Login failed', e?.message || 'Please check your credentials.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const onSocial = async (provider) => {
-    if (provider === 'google') await signInWithGoogle();
-    else await signInWithApple();
-    await socialLogin(provider);
+    try {
+      const result = provider === 'google' ? await signInWithGoogle() : await signInWithApple();
+      // When a real provider returns an idToken, pass it so the backend can
+      // verify; the stub returns none and the store falls back to a local session.
+      await socialLogin(provider, result?.idToken);
+    } catch (e) {
+      Alert.alert('Sign-in failed', e?.message || 'Please try again.');
+    }
   };
 
   return (

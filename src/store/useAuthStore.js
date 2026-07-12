@@ -3,17 +3,30 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 
 import { zustandMMKVStorage } from './storage';
 import { uid } from '@/utils/id';
+import { isRemote } from '@/services/api/client';
+import { authApi } from '@/services/api/authApi';
+import { setTokens, clearTokens } from '@/services/api/session';
 
-// Local-first auth. The service layer (services/api/authApi) is where you'd
-// swap in real network calls; here we just materialize a local session.
+// Auth store. When a backend URL is configured (isRemote), auth goes through the
+// real API and tokens are kept in session.js; otherwise it falls back to a
+// local-only session so the app still runs fully offline / demo.
+function toUser(apiUser) {
+  const name = apiUser.name || 'Designer';
+  return {
+    id: apiUser.id,
+    name,
+    email: apiUser.email,
+    initial: name.trim().charAt(0).toUpperCase(),
+  };
+}
+
 export const useAuthStore = create(
   persist(
     (set, get) => ({
       user: null,
-      token: null,
       isAuthenticated: false,
 
-      _sessionFrom(name, email) {
+      _localSession(name, email) {
         return {
           user: {
             id: uid('user'),
@@ -21,38 +34,82 @@ export const useAuthStore = create(
             email: email || 'alex@studio.com',
             initial: (name || 'A').trim().charAt(0).toUpperCase(),
           },
-          token: uid('token'),
           isAuthenticated: true,
         };
       },
 
-      login: async (email) => {
-        const session = get()._sessionFrom('Alex Rivera', email);
-        set(session);
-        return session.user;
+      login: async (email, password) => {
+        if (isRemote()) {
+          const { user, accessToken, refreshToken } = await authApi.login(email, password);
+          setTokens({ accessToken, refreshToken });
+          const mapped = toUser(user);
+          set({ user: mapped, isAuthenticated: true });
+          return mapped;
+        }
+        const s = get()._localSession('Alex Rivera', email);
+        set(s);
+        return s.user;
       },
 
-      signup: async (name, email) => {
-        const session = get()._sessionFrom(name, email);
-        set(session);
-        return session.user;
+      signup: async (name, email, password) => {
+        if (isRemote()) {
+          const { user, accessToken, refreshToken } = await authApi.signup(name, email, password);
+          setTokens({ accessToken, refreshToken });
+          const mapped = toUser(user);
+          set({ user: mapped, isAuthenticated: true });
+          return mapped;
+        }
+        const s = get()._localSession(name, email);
+        set(s);
+        return s.user;
       },
 
-      socialLogin: async (provider) => {
-        const session = get()._sessionFrom(
+      // provider: 'google' | 'apple'. Remote Google requires a verified idToken
+      // (wire expo-auth-session); without one we materialize a local session.
+      socialLogin: async (provider, idToken) => {
+        if (isRemote() && provider === 'google' && idToken) {
+          const { user, accessToken, refreshToken } = await authApi.googleLogin(idToken);
+          setTokens({ accessToken, refreshToken });
+          const mapped = toUser(user);
+          set({ user: mapped, isAuthenticated: true });
+          return mapped;
+        }
+        const s = get()._localSession(
           provider === 'apple' ? 'Apple User' : 'Google User',
           `user@${provider}.com`
         );
-        set(session);
-        return session.user;
+        set(s);
+        return s.user;
       },
 
-      logout: () => set({ user: null, token: null, isAuthenticated: false }),
+      deleteAccount: async () => {
+        if (isRemote()) {
+          try {
+            await authApi.deleteAccount();
+          } catch {
+            // proceed with local cleanup regardless
+          }
+        }
+        clearTokens();
+        set({ user: null, isAuthenticated: false });
+      },
+
+      logout: async () => {
+        if (isRemote()) {
+          try {
+            await authApi.logout();
+          } catch {
+            // ignore network errors on logout
+          }
+        }
+        clearTokens();
+        set({ user: null, isAuthenticated: false });
+      },
     }),
     {
       name: 'auth',
       storage: createJSONStorage(() => zustandMMKVStorage),
-      partialize: (s) => ({ user: s.user, token: s.token, isAuthenticated: s.isAuthenticated }),
+      partialize: (s) => ({ user: s.user, isAuthenticated: s.isAuthenticated }),
     }
   )
 );
