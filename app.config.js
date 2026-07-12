@@ -1,6 +1,20 @@
 // Expo app configuration for HomePlanner.
 // Uses config plugins for native modules that require a custom Dev Client
 // (Skia, AdMob, GL, MMKV, tracking transparency). Not runnable in Expo Go.
+//
+// Values that differ between environments come from process.env (Expo loads
+// the project's .env files automatically). Fallbacks are the Google AdMob
+// test IDs / example URLs so local dev works without a filled-in .env.
+const env = process.env;
+
+const ADMOB_ANDROID_APP_ID =
+  env.ADMOB_ANDROID_APP_ID || 'ca-app-pub-3940256099942544~3347511713';
+const ADMOB_IOS_APP_ID =
+  env.ADMOB_IOS_APP_ID || 'ca-app-pub-3940256099942544~1458002511';
+const EAS_PROJECT_ID = env.EXPO_ID || 'aa4c6755-9123-4c2d-bf10-3a3d815074f0';
+const PRIVACY_POLICY_URL = env.PRIVACY_POLICY_URL || 'https://example.com/privacy';
+const TERMS_URL = env.TERMS_URL || 'https://example.com/terms';
+
 module.exports = {
   expo: {
     name: 'HomePlanner',
@@ -43,9 +57,8 @@ module.exports = {
       [
         'react-native-google-mobile-ads',
         {
-          // Replace with your real AdMob app IDs before production.
-          androidAppId: 'ca-app-pub-3940256099942544~3347511713',
-          // iosAppId: 'ca-app-pub-3940256099942544~1458002511',
+          androidAppId: ADMOB_ANDROID_APP_ID,
+          iosAppId: ADMOB_IOS_APP_ID,
           userTrackingUsageDescription:
             'This lets us show you more relevant ads to keep HomePlanner free.',
         },
@@ -67,7 +80,12 @@ module.exports = {
       ],
     ],
     extra: {
-      eas: { projectId: '00000000-0000-0000-0000-000000000000' },
+      eas: { projectId: EAS_PROJECT_ID },
+      // Surfaced to the app at runtime via expo-constants.
+      admobRewardedUnitAndroid: env.ADMOB_REWARDED_UNIT_ANDROID,
+      admobRewardedUnitIos: env.ADMOB_REWARDED_UNIT_IOS,
+      privacyPolicyUrl: PRIVACY_POLICY_URL,
+      termsUrl: TERMS_URL,
     },
   },
 };
