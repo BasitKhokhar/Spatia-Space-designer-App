@@ -40,7 +40,6 @@ module.exports = {
       'expo-dev-client',
       'expo-secure-store',
       'expo-tracking-transparency',
-      '@shopify/react-native-skia',
       [
         'react-native-google-mobile-ads',
         {
