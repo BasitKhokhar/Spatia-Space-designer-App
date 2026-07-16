@@ -1,5 +1,5 @@
 import { View } from 'react-native';
-import Svg, { Rect, G } from 'react-native-svg';
+import Svg, { Rect, G, Polygon } from 'react-native-svg';
 
 import { useTheme } from '@/theme/useTheme';
 
@@ -19,7 +19,16 @@ export default function RoomPreview({ plan, width = 300, style }) {
   return (
     <View style={[{ width, height: width * 0.62, backgroundColor: isDark ? '#1D1712' : '#FBF6F1' }, style]}>
       <Svg width={width} height={width * 0.62}>
-        <Rect x={ox} y={oy} width={w} height={h} fill={isDark ? '#241C15' : '#F4ECE1'} stroke={colors.accent} strokeWidth={3} rx={4} />
+        {plan.footprint && plan.footprint.length >= 3 ? (
+          <Polygon
+            points={plan.footprint.map((p) => `${ox + p.x * ppm},${oy + p.y * ppm}`).join(' ')}
+            fill={isDark ? '#241C15' : '#F4ECE1'}
+            stroke={colors.accent}
+            strokeWidth={3}
+          />
+        ) : (
+          <Rect x={ox} y={oy} width={w} height={h} fill={isDark ? '#241C15' : '#F4ECE1'} stroke={colors.accent} strokeWidth={3} rx={4} />
+        )}
         {plan.furniture.map((f) => {
           const fw = f.w * f.scale * ppm;
           const fd = f.d * f.scale * ppm;

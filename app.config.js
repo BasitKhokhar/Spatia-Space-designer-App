@@ -17,7 +17,7 @@ const TERMS_URL = env.TERMS_URL || 'https://example.com/terms';
 
 module.exports = {
   expo: {
-    name: 'HomePlanner',
+    name: 'Spatia:3D Space Designer',
     slug: 'spatia3d-space-designer',
     version: '1.0.0',
     orientation: 'portrait',

@@ -16,6 +16,8 @@ export const ROUTES = {
   profile: 'Profile',
   // Project creation
   newProject: 'NewProjectStart',
+  category: 'CategoryPick',
+  starterIdeas: 'StarterIdeas',
   roomType: 'RoomType',
   dimensions: 'Dimensions',
   // Design

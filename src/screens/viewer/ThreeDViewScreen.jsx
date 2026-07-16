@@ -22,31 +22,83 @@ export default function ThreeDViewScreen({ navigation }) {
   const [walk, setWalk] = useState(false);
 
   const plan = project?.plan;
-  const baseRadius = plan ? Math.max(plan.width, plan.length) * 1.6 : 8;
+  const span = plan ? Math.max(plan.width, plan.length) : 5;
+  const baseRadius = span * 1.6;
+  const minRadius = span * 0.35;
+  const maxRadius = span * 4;
 
-  const angles = useRef({ azimuth: Math.PI * 0.75, polar: 0.9, radius: baseRadius });
-  const start = useRef({ azimuth: 0, polar: 0, radius: 0 });
+  // Shared camera state, mutated by gestures and damped toward by CameraRig.
+  const cam = useRef({
+    azimuth: Math.PI * 0.75,
+    polar: 0.9,
+    radius: baseRadius,
+    target: [0, (plan?.wallHeight ?? 2.6) * 0.35, 0],
+  }).current;
+  const start = useRef({}).current;
 
-  const pan = Gesture.Pan()
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  // Vertical orbit range: from almost straight-down (top-down plan view) past
+  // the horizon so you can tilt low and look *up* at the structure. The rig
+  // keeps the camera above the floor, so the lower range reads as a ground-level
+  // look-up rather than the camera clipping underground.
+  const POLAR_MIN = 0.04;
+  const POLAR_MAX = Math.PI / 2 + 0.42;
+
+  const resetView = () => {
+    cam.azimuth = Math.PI * 0.75;
+    cam.polar = 0.9;
+    cam.radius = baseRadius;
+    cam.target[0] = 0;
+    cam.target[1] = (plan?.wallHeight ?? 2.6) * 0.35;
+    cam.target[2] = 0;
+    if (walk) setWalk(false);
+  };
+
+  // 1 finger → orbit freely (360° horizontal, top-down to below-horizon vertical)
+  const orbit = Gesture.Pan()
+    .maxPointers(1)
     .runOnJS(true)
     .onBegin(() => {
-      start.current = { ...angles.current };
+      start.azimuth = cam.azimuth;
+      start.polar = cam.polar;
     })
     .onUpdate((e) => {
-      angles.current.azimuth = start.current.azimuth + e.translationX * 0.008;
-      angles.current.polar = start.current.polar - e.translationY * 0.006;
+      cam.azimuth = start.azimuth + e.translationX * 0.008;
+      cam.polar = clamp(start.polar - e.translationY * 0.006, POLAR_MIN, POLAR_MAX);
     });
 
+  // 2 fingers drag → pan the model along the ground, relative to view direction
+  const panMove = Gesture.Pan()
+    .minPointers(2)
+    .averageTouches(true)
+    .runOnJS(true)
+    .onBegin(() => {
+      start.tx = cam.target[0];
+      start.tz = cam.target[2];
+      start.az = cam.azimuth;
+    })
+    .onUpdate((e) => {
+      const az = start.az;
+      const s = cam.radius * 0.0022;
+      cam.target[0] = start.tx + (Math.sin(az) * e.translationX + Math.cos(az) * e.translationY) * s;
+      cam.target[2] = start.tz + (-Math.cos(az) * e.translationX + Math.sin(az) * e.translationY) * s;
+    });
+
+  // pinch → zoom in/out, clamped to the room's size
   const pinch = Gesture.Pinch()
     .runOnJS(true)
     .onBegin(() => {
-      start.current.radius = angles.current.radius;
+      start.radius = cam.radius;
     })
     .onUpdate((e) => {
-      angles.current.radius = Math.max(2.5, Math.min(20, start.current.radius / (e.scale || 1)));
+      cam.radius = clamp(start.radius / (e.scale || 1), minRadius, maxRadius);
     });
 
-  const gesture = Gesture.Simultaneous(pan, pinch);
+  // double-tap → snap back to the default framing
+  const doubleTap = Gesture.Tap().numberOfTaps(2).runOnJS(true).onEnd(resetView);
+
+  const gesture = Gesture.Simultaneous(Gesture.Exclusive(doubleTap, orbit), panMove, pinch);
 
   const toggleLighting = () => {
     const idx = LIGHTING_ORDER.indexOf(lighting);
@@ -56,8 +108,8 @@ export default function ThreeDViewScreen({ navigation }) {
   const toggleWalk = () => {
     setWalk((w) => {
       const next = !w;
-      angles.current.polar = next ? 1.45 : 0.9;
-      angles.current.radius = next ? baseRadius * 0.55 : baseRadius;
+      cam.polar = next ? 1.5 : 0.9;
+      cam.radius = next ? baseRadius * 0.5 : baseRadius;
       return next;
     });
   };
@@ -77,7 +129,7 @@ export default function ThreeDViewScreen({ navigation }) {
       <GestureDetector gesture={gesture}>
         <View style={StyleSheet.absoluteFill}>
           <Canvas camera={{ position: [6, 5, 6], fov: 50 }}>
-            <Room3D plan={plan} lighting={lighting} angles={angles} />
+            <Room3D plan={plan} lighting={lighting} cam={cam} />
           </Canvas>
         </View>
       </GestureDetector>
@@ -141,7 +193,8 @@ export default function ThreeDViewScreen({ navigation }) {
         </Text>
       </Pressable>
 
-      <View
+      <Pressable
+        onPress={resetView}
         style={{
           position: 'absolute',
           right: 18,
@@ -155,7 +208,7 @@ export default function ThreeDViewScreen({ navigation }) {
         }}
       >
         <Icon name="rotate" size={28} color={colors.ink} strokeWidth={2} />
-      </View>
+      </Pressable>
 
       {/* Bottom sheet */}
       <View

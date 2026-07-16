@@ -23,6 +23,8 @@ import OtpScreen from '@/screens/auth/OtpScreen';
 // App
 import TabNavigator from './TabNavigator';
 import NewProjectStartScreen from '@/screens/project/NewProjectStartScreen';
+import CategoryScreen from '@/screens/project/CategoryScreen';
+import StarterIdeasScreen from '@/screens/project/StarterIdeasScreen';
 import RoomTypeScreen from '@/screens/project/RoomTypeScreen';
 import DimensionsScreen from '@/screens/project/DimensionsScreen';
 import FloorPlanEditorScreen from '@/screens/editor/FloorPlanEditorScreen';
@@ -92,6 +94,8 @@ export default function RootNavigator() {
             <Stack.Group>
               <Stack.Screen name={ROUTES.tabs} component={TabNavigator} />
               <Stack.Screen name={ROUTES.newProject} component={NewProjectStartScreen} />
+              <Stack.Screen name={ROUTES.category} component={CategoryScreen} />
+              <Stack.Screen name={ROUTES.starterIdeas} component={StarterIdeasScreen} />
               <Stack.Screen name={ROUTES.roomType} component={RoomTypeScreen} />
               <Stack.Screen name={ROUTES.dimensions} component={DimensionsScreen} />
               <Stack.Screen name={ROUTES.editor} component={FloorPlanEditorScreen} />

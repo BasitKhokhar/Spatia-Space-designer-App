@@ -4,6 +4,8 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { zustandMMKVStorage } from './storage';
 import { uid } from '@/utils/id';
 import { createFloorPlan } from '@/domain/floorplan';
+import { seedPlan, hasStarterLayout } from '@/data/starterLayouts';
+import { buildIdeaPlan, ideaById } from '@/data/starterIdeas';
 import { isRemote } from '@/services/api/client';
 import { projectsApi } from '@/services/api/projectsApi';
 
@@ -30,18 +32,37 @@ export const useProjectsStore = create(
         }
       },
 
-      createProject: ({ name, roomType, width, length, variant = 0 }) => {
+      createProject: ({ name, roomType, width, length, variant = 0, seed = false, ideaId = null }) => {
         const now = Date.now();
         const tempId = uid('proj');
+        // A starter idea builds a full furnished plan (perimeter + partitions +
+        // furniture); otherwise fall back to a blank rectangle, optionally
+        // seeded with a single-room starter layout.
+        const idea = ideaId ? ideaById(ideaId) : null;
+        let plan;
+        let rooms = 1;
+        if (idea) {
+          plan = buildIdeaPlan(idea);
+          rooms = idea.rooms || 1;
+          name = name || idea.name;
+          roomType = roomType || idea.categoryId;
+          width = plan.width;
+          length = plan.length;
+        } else {
+          plan = createFloorPlan({ width, length });
+          if (seed && hasStarterLayout(roomType)) {
+            plan = seedPlan(plan, roomType);
+          }
+        }
         const project = {
           id: tempId,
           name: name || 'Untitled Room',
           roomType: roomType || 'living',
           variant,
-          rooms: 1,
+          rooms,
           createdAt: now,
           updatedAt: now,
-          plan: createFloorPlan({ width, length }),
+          plan,
         };
         set((s) => ({ projects: [project, ...s.projects], activeProjectId: project.id }));
 

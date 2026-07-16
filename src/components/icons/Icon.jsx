@@ -295,6 +295,20 @@ const ICONS = {
   square: (c, w) => (
     <Rect x="4" y="4" width="16" height="16" rx="2" stroke={c} strokeWidth={w} fill="none" />
   ),
+  polygon: (c, w) => (
+    <G>
+      <Path
+        d="M4 8 L10 3 L20 7 L18 17 L8 20 L3 13 Z"
+        stroke={c}
+        strokeWidth={w}
+        fill="none"
+        strokeLinejoin="round"
+      />
+      <Circle cx="10" cy="3" r="1.7" fill={c} />
+      <Circle cx="20" cy="7" r="1.7" fill={c} />
+      <Circle cx="8" cy="20" r="1.7" fill={c} />
+    </G>
+  ),
   door: (c, w) => (
     <Path d="M4 12 H20 M4 12 V17 M20 12 V17" stroke={c} strokeWidth={w} fill="none" />
   ),
@@ -318,6 +332,143 @@ const ICONS = {
     <G>
       <Rect x="8" y="8" width="12" height="12" rx="2" stroke={c} strokeWidth={w} fill="none" />
       <Path d="M4 16 V6 a2 2 0 0 1 2 -2 H16" stroke={c} strokeWidth={w} fill="none" />
+    </G>
+  ),
+  wall: (c, w) => (
+    <G>
+      <Rect x="3" y="6" width="18" height="12" rx="1" stroke={c} strokeWidth={w} fill="none" />
+      <Path d="M3 12 H21 M9 6 V12 M15 12 V18" stroke={c} strokeWidth={w} />
+    </G>
+  ),
+  magnet: (c, w) => (
+    <G>
+      <Path d="M6 3 v8 a6 6 0 0 0 12 0 V3" stroke={c} strokeWidth={w} fill="none" strokeLinecap="round" />
+      <Path d="M6 3 H10 V11 a2 2 0 0 0 4 0 V3 H18" stroke={c} strokeWidth={w} fill="none" />
+      <Path d="M6 20 H10 M14 20 H18" stroke={c} strokeWidth={w} strokeLinecap="round" />
+    </G>
+  ),
+  palette: (c, w) => (
+    <G>
+      <Path
+        d="M12 3 a9 9 0 1 0 0 18 c1.5 0 2 -1 2 -2 0 -1.5 1 -2 2.5 -2 H18 a3 3 0 0 0 3 -3 c0 -5 -4 -9 -9 -9z"
+        stroke={c}
+        strokeWidth={w}
+        fill="none"
+        strokeLinejoin="round"
+      />
+      <Circle cx="8" cy="11" r="1.3" fill={c} />
+      <Circle cx="12" cy="8" r="1.3" fill={c} />
+      <Circle cx="16" cy="10" r="1.3" fill={c} />
+    </G>
+  ),
+  move: (c, w) => (
+    <Path
+      d="M12 3 V21 M3 12 H21 M9 6 L12 3 L15 6 M9 18 L12 21 L15 18 M6 9 L3 12 L6 15 M18 9 L21 12 L18 15"
+      stroke={c}
+      strokeWidth={w}
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
+  expand: (c, w) => (
+    <Path
+      d="M4 10 V4 H10 M20 14 V20 H14 M4 4 L10 10 M20 20 L14 14"
+      stroke={c}
+      strokeWidth={w}
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
+  store: (c, w) => (
+    <G>
+      <Path d="M4 9 L5.5 4 H18.5 L20 9 Z" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+      <Path d="M5 9 v11 h14 V9" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+      <Path d="M10 20 v-5 h4 v5" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+    </G>
+  ),
+  cart: (c, w) => (
+    <G>
+      <Path d="M3 4 H5 L7 15 H18 L20 7 H6" stroke={c} strokeWidth={w} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+      <Circle cx="9" cy="19" r="1.6" fill={c} />
+      <Circle cx="17" cy="19" r="1.6" fill={c} />
+    </G>
+  ),
+  hanger: (c, w) => (
+    <G>
+      <Path d="M12 5 a2 2 0 1 1 2 2 c-1.2 0 -2 .8 -2 2" stroke={c} strokeWidth={w} fill="none" strokeLinecap="round" />
+      <Path d="M12 9 L3 16 a1.2 1.2 0 0 0 .8 2 H20.2 a1.2 1.2 0 0 0 .8 -2 Z" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+    </G>
+  ),
+  coffee: (c, w) => (
+    <G>
+      <Path d="M5 9 H17 V15 a4 4 0 0 1 -4 4 H9 a4 4 0 0 1 -4 -4 Z" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+      <Path d="M17 10 h2.5 a2 2 0 0 1 0 5 H17" stroke={c} strokeWidth={w} fill="none" />
+      <Path d="M8 3 v2 M12 3 v2" stroke={c} strokeWidth={w} strokeLinecap="round" />
+    </G>
+  ),
+  scissors: (c, w) => (
+    <G>
+      <Circle cx="7" cy="7" r="2.6" stroke={c} strokeWidth={w} fill="none" />
+      <Circle cx="7" cy="17" r="2.6" stroke={c} strokeWidth={w} fill="none" />
+      <Path d="M9 8.5 L20 17 M9 15.5 L20 7 M9 8.5 L14 12 L9 15.5" stroke={c} strokeWidth={w} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </G>
+  ),
+  // ---- Category / construction icons ---------------------------------
+  building: (c, w) => (
+    <G>
+      <Rect x="5" y="3" width="14" height="18" rx="1.5" stroke={c} strokeWidth={w} fill="none" />
+      <Path
+        d="M9 7 H10 M14 7 H15 M9 11 H10 M14 11 H15 M9 15 H10 M14 15 H15 M11 21 V17 H13 V21"
+        stroke={c}
+        strokeWidth={w}
+        strokeLinecap="round"
+      />
+    </G>
+  ),
+  briefcase: (c, w) => (
+    <G>
+      <Rect x="3" y="7" width="18" height="13" rx="2.5" stroke={c} strokeWidth={w} fill="none" />
+      <Path d="M8 7 V5 a2 2 0 0 1 2 -2 h4 a2 2 0 0 1 2 2 V7 M3 12.5 H21" stroke={c} strokeWidth={w} fill="none" />
+    </G>
+  ),
+  health: (c, w) => (
+    <G>
+      <Rect x="3.5" y="3.5" width="17" height="17" rx="4" stroke={c} strokeWidth={w} fill="none" />
+      <Path d="M12 8 V16 M8 12 H16" stroke={c} strokeWidth={w} strokeLinecap="round" />
+    </G>
+  ),
+  school: (c, w) => (
+    <G>
+      <Path d="M2 9 L12 4 L22 9 L12 14 Z" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+      <Path d="M7 11 V16 c0 1.5 2.5 3 5 3 s5 -1.5 5 -3 V11 M22 9 V14" stroke={c} strokeWidth={w} fill="none" strokeLinecap="round" />
+    </G>
+  ),
+  parking: (c, w) => (
+    <G>
+      <Rect x="3.5" y="3.5" width="17" height="17" rx="4" stroke={c} strokeWidth={w} fill="none" />
+      <Path d="M9 17 V7 h4 a3 3 0 0 1 0 6 H9" stroke={c} strokeWidth={w} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </G>
+  ),
+  tree: (c, w) => (
+    <G>
+      <Path d="M12 3 a5 5 0 0 0 -4 8 a4.5 4.5 0 0 0 3 7 h2 a4.5 4.5 0 0 0 3 -7 a5 5 0 0 0 -4 -8z" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+      <Path d="M12 12 V21" stroke={c} strokeWidth={w} strokeLinecap="round" />
+    </G>
+  ),
+  plaza: (c, w) => (
+    <G>
+      <Path d="M4 9 L5.5 4 H18.5 L20 9 Z" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+      <Path d="M4 9 v11 h16 V9 M9 20 v-6 h6 v6 M8 9 v2 M12 9 v2 M16 9 v2" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+    </G>
+  ),
+  car: (c, w) => (
+    <G>
+      <Path d="M4 16 v-3 l2 -5 a2 2 0 0 1 1.9 -1.3 h8.2 A2 2 0 0 1 18 8 l2 5 v3" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+      <Path d="M3 16 H21 M6 13 H18" stroke={c} strokeWidth={w} strokeLinecap="round" />
+      <Circle cx="8" cy="17.5" r="1.6" stroke={c} strokeWidth={w} fill="none" />
+      <Circle cx="16" cy="17.5" r="1.6" stroke={c} strokeWidth={w} fill="none" />
     </G>
   ),
   logout: (c, w) => (

@@ -7,19 +7,27 @@ import Input from '@/components/ui/Input';
 import Chip from '@/components/ui/Chip';
 import FurnitureCard from '@/components/catalog/FurnitureCard';
 import { CATALOG, CATEGORIES } from '@/data/catalog';
+import { isShopRoom } from '@/data/roomTypes';
 import { useProjectsStore } from '@/store/useProjectsStore';
 import { addFurnitureItem } from '@/domain/floorplan';
 
 export default function CatalogScreen({ navigation }) {
   const project = useProjectsStore((s) => s.getActive());
   const updatePlan = useProjectsStore((s) => s.updatePlan);
-  const [category, setCategory] = useState('All');
+  const [category, setCategory] = useState(
+    project && isShopRoom(project.roomType) ? 'Retail' : 'All'
+  );
   const [query, setQuery] = useState('');
 
   const items = useMemo(() => {
+    const q = query.trim().toLowerCase();
     return CATALOG.filter((c) => {
       const matchCat = category === 'All' || c.category === category;
-      const matchQuery = !query || c.name.toLowerCase().includes(query.toLowerCase());
+      const matchQuery =
+        !q ||
+        c.name.toLowerCase().includes(q) ||
+        c.category.toLowerCase().includes(q) ||
+        (c.tags || []).some((t) => t.includes(q));
       return matchCat && matchQuery;
     });
   }, [category, query]);

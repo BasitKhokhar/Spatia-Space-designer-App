@@ -6,10 +6,7 @@ import Text from '@/components/ui/Text';
 import Button from '@/components/ui/Button';
 import HeaderBar from '@/components/ui/HeaderBar';
 import Icon from '@/components/icons/Icon';
-import PlanThumbnail from '@/components/graphics/PlanThumbnail';
 import { useTheme } from '@/theme/useTheme';
-import { TEMPLATES } from '@/data/templates';
-import { useProjectsStore } from '@/store/useProjectsStore';
 import { ROUTES } from '@/navigation/routes';
 
 function ChoiceRow({ selected, icon, iconFill, title, subtitle, onPress }) {
@@ -66,23 +63,13 @@ function ChoiceRow({ selected, icon, iconFill, title, subtitle, onPress }) {
 
 export default function NewProjectStartScreen({ navigation }) {
   const { colors } = useTheme();
-  const createProject = useProjectsStore((s) => s.createProject);
-  const [mode, setMode] = useState('blank');
-  const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
+  const [mode, setMode] = useState('ideas');
 
   const onContinue = () => {
-    if (mode === 'blank') {
-      navigation.navigate(ROUTES.roomType);
+    if (mode === 'ideas') {
+      navigation.navigate(ROUTES.category);
     } else {
-      const t = TEMPLATES.find((x) => x.id === templateId) || TEMPLATES[0];
-      createProject({
-        name: t.name,
-        roomType: 'living',
-        width: t.dimensions.width,
-        length: t.dimensions.length,
-        variant: t.variant,
-      });
-      navigation.navigate(ROUTES.editor);
+      navigation.navigate(ROUTES.roomType, { category: 'house' });
     }
   };
 
@@ -95,63 +82,41 @@ export default function NewProjectStartScreen({ navigation }) {
 
           <View style={{ gap: 14, marginTop: 24 }}>
             <ChoiceRow
-              selected={mode === 'blank'}
-              onPress={() => setMode('blank')}
+              selected={mode === 'ideas'}
+              onPress={() => setMode('ideas')}
               iconFill={colors.accent}
-              icon={<Icon name="plus" size={28} color="#fff" strokeWidth={2} />}
-              title="Start Blank"
-              subtitle="Draw your plan from scratch."
+              icon={<Icon name="grid" size={28} color="#fff" strokeWidth={2} />}
+              title="Browse categories"
+              subtitle="Houses, shops, offices & more — 100+ ready layouts."
             />
             <ChoiceRow
-              selected={mode === 'template'}
-              onPress={() => setMode('template')}
+              selected={mode === 'blank'}
+              onPress={() => setMode('blank')}
               iconFill={colors.accentSoft}
-              icon={<Icon name="grid" size={28} color={colors.accent} strokeWidth={2} />}
-              title="Use a Template"
-              subtitle="Start from a ready layout."
+              icon={<Icon name="plus" size={28} color={colors.accent} strokeWidth={2} />}
+              title="Quick blank room"
+              subtitle="Pick a room, set the size, and draw from scratch."
             />
           </View>
 
-          <Text variant="titleSm" style={{ marginTop: 28, marginBottom: 14 }}>
-            Popular templates
-          </Text>
+          <View
+            style={{
+              marginTop: 28,
+              padding: 18,
+              borderRadius: 16,
+              backgroundColor: colors.surface2,
+              flexDirection: 'row',
+              gap: 12,
+              alignItems: 'flex-start',
+            }}
+          >
+            <Icon name="wall" size={20} color={colors.accent} />
+            <Text variant="bodySm" color="ink2" style={{ flex: 1 }}>
+              Every category includes a <Text variant="bodySm" color="accent">Custom</Text> option so
+              you can draw any shape — non-square rooms, custom walls and partitions.
+            </Text>
+          </View>
         </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 24, gap: 12 }}
-        >
-          {TEMPLATES.map((t) => {
-            const selected = mode === 'template' && templateId === t.id;
-            return (
-              <Pressable
-                key={t.id}
-                onPress={() => {
-                  setMode('template');
-                  setTemplateId(t.id);
-                }}
-                style={{ width: 130 }}
-              >
-                <PlanThumbnail
-                  variant={t.variant}
-                  height={100}
-                  style={{
-                    borderRadius: 16,
-                    borderWidth: selected ? 2 : 0,
-                    borderColor: colors.accent,
-                  }}
-                />
-                <Text variant="label" color="ink" style={{ marginTop: 8 }}>
-                  {t.name}
-                </Text>
-                <Text variant="bodySm" color="ink3">
-                  {t.rooms} rooms
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
       </ScrollView>
 
       <View style={{ position: 'absolute', bottom: 34, left: 24, right: 24 }}>

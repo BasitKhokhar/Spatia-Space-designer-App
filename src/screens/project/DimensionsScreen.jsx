@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { View } from 'react-native';
+import { View, Pressable } from 'react-native';
 import Svg, { Rect, Defs, Pattern, Circle, Path } from 'react-native-svg';
 
 import Screen from '@/components/ui/Screen';
@@ -8,8 +8,10 @@ import Button from '@/components/ui/Button';
 import HeaderBar from '@/components/ui/HeaderBar';
 import SegmentedControl from '@/components/ui/SegmentedControl';
 import Stepper from '@/components/ui/Stepper';
+import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
-import { roomTypeById } from '@/data/roomTypes';
+import { roomTypeById, isShopRoom } from '@/data/roomTypes';
+import { hasStarterLayout } from '@/data/starterLayouts';
 import { areaM2, formatLength } from '@/domain/units';
 import { useProjectsStore } from '@/store/useProjectsStore';
 import { ROUTES } from '@/navigation/routes';
@@ -22,9 +24,11 @@ export default function DimensionsScreen({ navigation, route }) {
   const [width, setWidth] = useState(roomType.defaults.width);
   const [length, setLength] = useState(roomType.defaults.length);
   const [unit, setUnit] = useState('meters');
+  const [seed, setSeed] = useState(isShopRoom(roomType.id));
+  const canSeed = hasStarterLayout(roomType.id);
 
   const onCreate = () => {
-    createProject({ name: `${roomType.label}`, roomType: roomType.id, width, length });
+    createProject({ name: `${roomType.label}`, roomType: roomType.id, width, length, seed });
     navigation.navigate(ROUTES.editor);
   };
 
@@ -146,6 +150,57 @@ export default function DimensionsScreen({ navigation, route }) {
           <Stepper label="WIDTH" value={width} onChange={setWidth} />
           <Stepper label="LENGTH" value={length} onChange={setLength} />
         </View>
+
+        {/* Starter layout toggle */}
+        {canSeed ? (
+          <Pressable
+            onPress={() => setSeed((s) => !s)}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 14,
+              marginTop: 20,
+              padding: 16,
+              borderRadius: radius.lg,
+              borderWidth: 1.5,
+              borderColor: seed ? colors.accent : colors.line,
+              backgroundColor: seed ? colors.accentTintBg : colors.surface,
+            }}
+          >
+            <View
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: radius.md,
+                backgroundColor: seed ? colors.accent : colors.accentSoft,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon name="grid" size={20} color={seed ? '#fff' : colors.accent} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text variant="titleSm">Start with a layout</Text>
+              <Text variant="bodySm" color="ink2" style={{ marginTop: 2 }}>
+                {isShopRoom(roomType.id)
+                  ? 'Racks, shelves & a counter, pre-placed.'
+                  : 'A few key pieces to get going.'}
+              </Text>
+            </View>
+            <View
+              style={{
+                width: 46,
+                height: 28,
+                borderRadius: 14,
+                padding: 3,
+                backgroundColor: seed ? colors.accent : colors.line,
+                alignItems: seed ? 'flex-end' : 'flex-start',
+              }}
+            >
+              <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff' }} />
+            </View>
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={{ position: 'absolute', bottom: 34, left: 24, right: 24 }}>

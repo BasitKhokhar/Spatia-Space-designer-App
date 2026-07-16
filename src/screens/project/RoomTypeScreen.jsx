@@ -7,15 +7,21 @@ import Button from '@/components/ui/Button';
 import HeaderBar from '@/components/ui/HeaderBar';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
-import { ROOM_TYPES } from '@/data/roomTypes';
+import { roomTypesByCategory } from '@/data/roomTypes';
 import { ROUTES } from '@/navigation/routes';
 
-export default function RoomTypeScreen({ navigation }) {
+export default function RoomTypeScreen({ navigation, route }) {
   const { colors, radius } = useTheme();
-  const [selected, setSelected] = useState('living');
+  // The create flow now passes a rich category id (house, retail, cafe, ...).
+  // The Custom room-type picker only has Home vs Shop fixtures, so map the
+  // shop-like categories to 'shop' and everything else to 'home'.
+  const SHOP_CATEGORIES = ['shop', 'retail', 'cafe', 'salon', 'warehouse', 'plaza'];
+  const category = SHOP_CATEGORIES.includes(route.params?.category) ? 'shop' : 'home';
+  const roomTypes = roomTypesByCategory(category);
+  const [selected, setSelected] = useState(roomTypes[0].id);
 
   const onContinue = () => {
-    const room = ROOM_TYPES.find((r) => r.id === selected) || ROOM_TYPES[0];
+    const room = roomTypes.find((r) => r.id === selected) || roomTypes[0];
     navigation.navigate(ROUTES.dimensions, { roomTypeId: room.id });
   };
 
@@ -25,7 +31,9 @@ export default function RoomTypeScreen({ navigation }) {
       <View style={{ paddingHorizontal: 24, marginTop: 14 }}>
         <Text variant="h2">What are you{'\n'}designing?</Text>
         <Text variant="body" color="ink2" style={{ marginTop: 8 }}>
-          Pick a starting room — add more later.
+          {category === 'shop'
+            ? 'Pick a store type — fixtures come pre-placed.'
+            : 'Pick a starting room — add more later.'}
         </Text>
 
         <View
@@ -37,7 +45,7 @@ export default function RoomTypeScreen({ navigation }) {
             marginTop: 24,
           }}
         >
-          {ROOM_TYPES.map((room) => {
+          {roomTypes.map((room) => {
             const active = room.id === selected;
             return (
               <Pressable
