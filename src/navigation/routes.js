@@ -25,6 +25,7 @@ export const ROUTES = {
   view3d: 'ThreeDView',
   catalog: 'Catalog',
   export: 'Export',
+  estimate: 'Estimate',
   // Credits
   earnCredits: 'EarnCredits',
   paywall: 'Paywall',

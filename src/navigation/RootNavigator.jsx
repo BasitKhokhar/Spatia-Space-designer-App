@@ -30,6 +30,7 @@ import DimensionsScreen from '@/screens/project/DimensionsScreen';
 import FloorPlanEditorScreen from '@/screens/editor/FloorPlanEditorScreen';
 import ThreeDViewScreen from '@/screens/viewer/ThreeDViewScreen';
 import CatalogScreen from '@/screens/catalog/CatalogScreen';
+import EstimateScreen from '@/screens/estimate/EstimateScreen';
 import ExportScreen from '@/screens/export/ExportScreen';
 import EarnCreditsScreen from '@/screens/credits/EarnCreditsScreen';
 import PaywallScreen from '@/screens/credits/PaywallScreen';
@@ -101,6 +102,7 @@ export default function RootNavigator() {
               <Stack.Screen name={ROUTES.editor} component={FloorPlanEditorScreen} />
               <Stack.Screen name={ROUTES.view3d} component={ThreeDViewScreen} />
               <Stack.Screen name={ROUTES.catalog} component={CatalogScreen} />
+              <Stack.Screen name={ROUTES.estimate} component={EstimateScreen} />
               <Stack.Screen name={ROUTES.export} component={ExportScreen} />
               <Stack.Screen name={ROUTES.earnCredits} component={EarnCreditsScreen} />
               <Stack.Screen name={ROUTES.settings} component={SettingsScreen} />

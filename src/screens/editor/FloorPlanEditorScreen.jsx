@@ -867,6 +867,31 @@ export default function FloorPlanEditorScreen({ navigation }) {
         </Pressable>
       ) : null}
 
+      {/* Construction cost estimate */}
+      <Pressable
+        onPress={() => navigation.navigate(ROUTES.estimate)}
+        style={[
+          {
+            position: 'absolute',
+            bottom: 40,
+            left: 16,
+            height: 44,
+            paddingHorizontal: 16,
+            borderRadius: 22,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.line,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+          },
+          shadows.e2,
+        ]}
+      >
+        <Icon name="building" size={16} color={colors.accent} strokeWidth={2.2} />
+        <Text style={{ fontFamily: 'Manrope_700Bold', fontSize: 14, color: colors.ink }}>Estimate</Text>
+      </Pressable>
+
       {/* Switch to 3D */}
       <Pressable
         onPress={() => navigation.navigate(ROUTES.view3d)}

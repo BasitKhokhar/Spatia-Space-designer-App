@@ -14,6 +14,9 @@ export function itemCount(plan) {
   return plan?.furniture?.length || 0;
 }
 
-export function formatMoney(n) {
-  return `$${Math.round(n).toLocaleString('en-US')}`;
+// Format an amount with an optional currency ({ symbol }). Defaults to "$" so
+// existing callers (the furniture budget pill) keep working unchanged.
+export function formatMoney(n, currency) {
+  const symbol = currency?.symbol ?? '$';
+  return `${symbol}${Math.round(n).toLocaleString('en-US')}`;
 }
