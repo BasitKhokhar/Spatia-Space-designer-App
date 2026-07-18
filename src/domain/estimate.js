@@ -14,11 +14,11 @@ function num(v) {
 
 // Seed the scope step from a project's floor plan. planArea is in m²; the
 // estimator works in sq ft. Defaults to a single storey / 10 ft walls.
-export function deriveMeasurements(plan) {
+export function deriveMeasurements(plan, storeys = 1) {
   const areaM2 = plan ? planArea(plan) : 0;
   return {
     coveredAreaSqft: Math.max(1, Math.round(areaM2 * M2_TO_SQFT)),
-    storeys: 1,
+    storeys: Math.max(1, storeys),
     wallHeightFt: 10,
   };
 }

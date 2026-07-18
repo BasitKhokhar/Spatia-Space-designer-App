@@ -9,7 +9,7 @@ import CreditPill from '@/components/ui/CreditPill';
 import Icon from '@/components/icons/Icon';
 import RoomPreview from '@/components/graphics/RoomPreview';
 import { useTheme } from '@/theme/useTheme';
-import { useProjectsStore } from '@/store/useProjectsStore';
+import { useProjectsStore, useActiveProject } from '@/store/useProjectsStore';
 import { useCreditsStore } from '@/store/useCreditsStore';
 import { CREDITS } from '@/constants/config';
 import { exportPng, exportPdf, exportObj } from '@/services/export/exporters';
@@ -23,10 +23,12 @@ const OPTIONS = [
 
 export default function ExportScreen({ navigation }) {
   const { colors, radius } = useTheme();
-  const project = useProjectsStore((s) => s.getActive());
+  const project = useActiveProject();
   const incrementExports = useProjectsStore((s) => s.incrementExports);
   const balance = useCreditsStore((s) => s.balance);
   const spend = useCreditsStore((s) => s.spend);
+  // Pro subscribers download without spending credits.
+  const unlimited = useCreditsStore((s) => s.tier === 'pro' || s.isUnlimited);
   const [selected, setSelected] = useState('obj');
   const [busy, setBusy] = useState(false);
   const previewRef = useRef(null);
@@ -35,7 +37,8 @@ export default function ExportScreen({ navigation }) {
 
   const runExport = async () => {
     if (!project) return;
-    if (balance < option.cost) {
+    // Pro tier skips the credit gate entirely; everyone else must cover the cost.
+    if (!unlimited && balance < option.cost) {
       navigation.navigate(ROUTES.paywall, { needed: option.cost, have: balance });
       return;
     }
@@ -44,7 +47,7 @@ export default function ExportScreen({ navigation }) {
       if (selected === 'png') await exportPng(previewRef, project.name);
       else if (selected === 'pdf') await exportPdf(project);
       else await exportObj(project);
-      await spend(option.cost, selected);
+      if (!unlimited) await spend(option.cost, selected);
       incrementExports();
       Alert.alert('Export complete', `${option.title} exported successfully.`);
     } catch (e) {
@@ -140,16 +143,23 @@ export default function ExportScreen({ navigation }) {
       </ScrollView>
 
       <View style={{ position: 'absolute', bottom: 34, left: 24, right: 24 }}>
-        <Pressable
-          onPress={() => navigation.navigate(ROUTES.earnCredits)}
-          style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12 }}
-        >
-          <Icon name="play" size={16} color={colors.accent} />
-          <Text variant="bodySm" color="accent" style={{ fontWeight: '700' }}>
-            Watch ad to earn credits
-          </Text>
-        </Pressable>
-        <Button title={`Export Selected · ${option.cost} credits`} variant="dark" onPress={runExport} loading={busy} />
+        {!unlimited ? (
+          <Pressable
+            onPress={() => navigation.navigate(ROUTES.earnCredits)}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12 }}
+          >
+            <Icon name="play" size={16} color={colors.accent} />
+            <Text variant="bodySm" color="accent" style={{ fontWeight: '700' }}>
+              Watch ad to earn credits
+            </Text>
+          </Pressable>
+        ) : null}
+        <Button
+          title={unlimited ? 'Export Selected · Free' : `Export Selected · ${option.cost} credits`}
+          variant="dark"
+          onPress={runExport}
+          loading={busy}
+        />
       </View>
     </Screen>
   );

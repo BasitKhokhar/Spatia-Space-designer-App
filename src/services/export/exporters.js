@@ -4,7 +4,7 @@ import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import * as FileSystem from 'expo-file-system';
 
-import { planArea } from '@/domain/floorplan';
+import { planArea, itemDims } from '@/domain/floorplan';
 import { formatLength } from '@/domain/units';
 
 // Capture a view ref to PNG and save it to the photo library (with permission),
@@ -105,7 +105,8 @@ function buildObj(plan) {
   });
   // furniture
   plan.furniture.forEach((f) => {
-    box(f.x, f.y, 0, f.w * f.scale, f.d * f.scale, f.h * f.scale);
+    const dm = itemDims(f);
+    box(f.x, f.y, 0, dm.w, dm.d, dm.h);
   });
 
   return out;

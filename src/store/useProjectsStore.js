@@ -1,9 +1,17 @@
+import { useMemo } from 'react';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 import { zustandMMKVStorage } from './storage';
 import { uid } from '@/utils/id';
 import { createFloorPlan } from '@/domain/floorplan';
+import {
+  makeFloor,
+  blankFloorFrom,
+  cloneFloorRecord,
+  floorName,
+  ensureFloors,
+} from '@/domain/floors';
 import { seedPlan, hasStarterLayout } from '@/data/starterLayouts';
 import { buildIdeaPlan, ideaById } from '@/data/starterIdeas';
 import { isRemote } from '@/services/api/client';
@@ -26,7 +34,7 @@ export const useProjectsStore = create(
         if (!isRemote()) return;
         try {
           const list = await projectsApi.list();
-          set({ projects: list });
+          set({ projects: list.map(ensureFloors) });
         } catch {
           // keep cached projects on network error
         }
@@ -54,6 +62,7 @@ export const useProjectsStore = create(
             plan = seedPlan(plan, roomType);
           }
         }
+        const groundFloor = makeFloor('Ground floor', plan);
         const project = {
           id: tempId,
           name: name || 'Untitled Room',
@@ -62,7 +71,9 @@ export const useProjectsStore = create(
           rooms,
           createdAt: now,
           updatedAt: now,
-          plan,
+          floors: [groundFloor],
+          activeFloorId: groundFloor.id,
+          plan, // mirror of the active floor's plan (kept in sync by the store)
         };
         set((s) => ({ projects: [project, ...s.projects], activeProjectId: project.id }));
 
@@ -87,18 +98,127 @@ export const useProjectsStore = create(
 
       getActive: () => {
         const { projects, activeProjectId } = get();
-        return projects.find((p) => p.id === activeProjectId) || null;
+        const p = projects.find((p) => p.id === activeProjectId) || null;
+        return p ? ensureFloors(p) : null;
       },
 
+      // Persist an edit to the ACTIVE floor and mirror it to `project.plan`.
       updatePlan: (id, plan) => {
         set((s) => ({
-          projects: s.projects.map((p) => (p.id === id ? { ...p, plan, updatedAt: Date.now() } : p)),
+          projects: s.projects.map((p) => {
+            if (p.id !== id) return p;
+            const proj = ensureFloors(p);
+            const floors = proj.floors.map((f) =>
+              f.id === proj.activeFloorId ? { ...f, plan } : f
+            );
+            return { ...proj, floors, plan, updatedAt: Date.now() };
+          }),
         }));
-        // Only sync ids the server knows about (numeric); temp ids sync after
-        // the create reconciles and the next edit fires with the real id.
         if (isRemote() && typeof id === 'number') {
-          projectsApi.update(id, { plan }).catch(() => {});
+          const proj = get().projects.find((p) => p.id === id);
+          projectsApi.update(id, { plan, floors: proj?.floors }).catch(() => {});
         }
+      },
+
+      // ---- Floors ----------------------------------------------------------
+
+      addFloor: (projectId) => {
+        let newId = null;
+        set((s) => ({
+          projects: s.projects.map((p) => {
+            if (p.id !== projectId) return p;
+            const proj = ensureFloors(p);
+            const floor = blankFloorFrom(proj.plan, floorName(proj.floors.length));
+            newId = floor.id;
+            const floors = [...proj.floors, floor];
+            return { ...proj, floors, activeFloorId: floor.id, plan: floor.plan, updatedAt: Date.now() };
+          }),
+        }));
+        get()._syncFloors(projectId);
+        return newId;
+      },
+
+      cloneFloor: (projectId, floorId) => {
+        set((s) => ({
+          projects: s.projects.map((p) => {
+            if (p.id !== projectId) return p;
+            const proj = ensureFloors(p);
+            const idx = proj.floors.findIndex((f) => f.id === floorId);
+            if (idx < 0) return proj;
+            const copy = cloneFloorRecord(proj.floors[idx], `${proj.floors[idx].name} copy`);
+            const floors = [...proj.floors];
+            floors.splice(idx + 1, 0, copy);
+            return { ...proj, floors, activeFloorId: copy.id, plan: copy.plan, updatedAt: Date.now() };
+          }),
+        }));
+        get()._syncFloors(projectId);
+      },
+
+      deleteFloor: (projectId, floorId) => {
+        set((s) => ({
+          projects: s.projects.map((p) => {
+            if (p.id !== projectId) return p;
+            const proj = ensureFloors(p);
+            if (proj.floors.length <= 1) return proj; // always keep one floor
+            const idx = proj.floors.findIndex((f) => f.id === floorId);
+            const floors = proj.floors.filter((f) => f.id !== floorId);
+            let activeFloorId = proj.activeFloorId;
+            if (activeFloorId === floorId) {
+              const neighbor = floors[Math.min(idx, floors.length - 1)];
+              activeFloorId = neighbor.id;
+            }
+            const active = floors.find((f) => f.id === activeFloorId) || floors[0];
+            return { ...proj, floors, activeFloorId: active.id, plan: active.plan, updatedAt: Date.now() };
+          }),
+        }));
+        get()._syncFloors(projectId);
+      },
+
+      renameFloor: (projectId, floorId, name) => {
+        set((s) => ({
+          projects: s.projects.map((p) => {
+            if (p.id !== projectId) return p;
+            const proj = ensureFloors(p);
+            const floors = proj.floors.map((f) => (f.id === floorId ? { ...f, name } : f));
+            return { ...proj, floors, updatedAt: Date.now() };
+          }),
+        }));
+        get()._syncFloors(projectId);
+      },
+
+      setActiveFloor: (projectId, floorId) => {
+        set((s) => ({
+          projects: s.projects.map((p) => {
+            if (p.id !== projectId) return p;
+            const proj = ensureFloors(p);
+            const floor = proj.floors.find((f) => f.id === floorId);
+            if (!floor) return proj;
+            return { ...proj, activeFloorId: floor.id, plan: floor.plan };
+          }),
+        }));
+      },
+
+      moveFloor: (projectId, floorId, dir) => {
+        set((s) => ({
+          projects: s.projects.map((p) => {
+            if (p.id !== projectId) return p;
+            const proj = ensureFloors(p);
+            const idx = proj.floors.findIndex((f) => f.id === floorId);
+            const j = idx + (dir === 'up' ? -1 : 1);
+            if (idx < 0 || j < 0 || j >= proj.floors.length) return proj;
+            const floors = [...proj.floors];
+            [floors[idx], floors[j]] = [floors[j], floors[idx]];
+            return { ...proj, floors, updatedAt: Date.now() };
+          }),
+        }));
+        get()._syncFloors(projectId);
+      },
+
+      // Mirror the current floors array to the server (best-effort).
+      _syncFloors: (projectId) => {
+        if (!isRemote() || typeof projectId !== 'number') return;
+        const proj = get().projects.find((p) => p.id === projectId);
+        if (proj) projectsApi.update(projectId, { plan: proj.plan, floors: proj.floors }).catch(() => {});
       },
 
       renameProject: (id, name) => {
@@ -127,6 +247,29 @@ export const useProjectsStore = create(
     {
       name: 'projects',
       storage: createJSONStorage(() => zustandMMKVStorage),
+      version: 1,
+      // v0 → v1: give every project a floors array (single "Ground floor" from
+      // its existing plan). Lossless; `plan` stays mirrored to the active floor.
+      migrate: (state, version) => {
+        if (!state) return state;
+        if (version < 1 && Array.isArray(state.projects)) {
+          return { ...state, projects: state.projects.map(ensureFloors) };
+        }
+        return state;
+      },
     }
   )
 );
+
+// Referentially-stable hook for the active (normalized) project. Do NOT select
+// `getActive()` directly: it runs `ensureFloors`, which spreads a fresh object
+// every call, so the snapshot never compares equal and React throws
+// "getSnapshot should be cached" / "Maximum update depth exceeded". Instead we
+// subscribe to the raw record (a stable store reference) and normalize it with
+// useMemo so the result only changes when the underlying project changes.
+export function useActiveProject() {
+  const raw = useProjectsStore(
+    (s) => s.projects.find((p) => p.id === s.activeProjectId) || null
+  );
+  return useMemo(() => (raw ? ensureFloors(raw) : null), [raw]);
+}

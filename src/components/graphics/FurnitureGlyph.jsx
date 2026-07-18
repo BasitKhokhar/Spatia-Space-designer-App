@@ -14,8 +14,142 @@ export default function FurnitureGlyph({ kind = 'sofa', size = 80, color }) {
   const soft = colors.accentSoft;
   const press = colors.accentPress;
   const green = colors.success;
+  const shellDk = isDark ? '#4A4034' : '#7C6A55';
 
   const glyphs = {
+    // ---- Structure shells ----------------------------------------------
+    roomSquare: (
+      <Svg width={size} height={size * 0.85} viewBox="0 0 60 52">
+        <Rect x="8" y="8" width="44" height="36" rx="2" fill={c} opacity={0.5} />
+        <Rect x="8" y="8" width="44" height="36" rx="2" fill="none" stroke={shellDk} strokeWidth={3} />
+      </Svg>
+    ),
+    roomL: (
+      <Svg width={size} height={size * 0.85} viewBox="0 0 60 52">
+        <Path d="M8 8 H37 V26 H52 V44 H8 Z" fill={c} opacity={0.5} />
+        <Path d="M8 8 H37 V26 H52 V44 H8 Z" fill="none" stroke={shellDk} strokeWidth={3} strokeLinejoin="round" />
+      </Svg>
+    ),
+    roomU: (
+      <Svg width={size} height={size * 0.85} viewBox="0 0 60 52">
+        <Path d="M8 8 H21 V33 H39 V8 H52 V44 H8 Z" fill={c} opacity={0.5} />
+        <Path d="M8 8 H21 V33 H39 V8 H52 V44 H8 Z" fill="none" stroke={shellDk} strokeWidth={3} strokeLinejoin="round" />
+      </Svg>
+    ),
+    roomT: (
+      <Svg width={size} height={size * 0.85} viewBox="0 0 60 52">
+        <Path d="M8 8 H52 V22 H37 V44 H23 V22 H8 Z" fill={c} opacity={0.5} />
+        <Path d="M8 8 H52 V22 H37 V44 H23 V22 H8 Z" fill="none" stroke={shellDk} strokeWidth={3} strokeLinejoin="round" />
+      </Svg>
+    ),
+    stairsStraight: (
+      <Svg width={size * 0.7} height={size} viewBox="0 0 44 60">
+        <Rect x="10" y="6" width="24" height="48" rx="2" fill={c} opacity={0.45} />
+        <Rect x="10" y="6" width="24" height="48" rx="2" fill="none" stroke={shellDk} strokeWidth={2.5} />
+        <Path d="M10 14 H34 M10 22 H34 M10 30 H34 M10 38 H34 M10 46 H34" stroke={shellDk} strokeWidth={2} />
+      </Svg>
+    ),
+    stairsL: (
+      <Svg width={size} height={size} viewBox="0 0 56 56">
+        <Path d="M8 8 H30 V30 H48 V48 H8 Z" fill={c} opacity={0.45} />
+        <Path d="M8 8 H30 V30 H48 V48 H8 Z" fill="none" stroke={shellDk} strokeWidth={2.5} strokeLinejoin="round" />
+        <Path d="M14 8 V30 M20 8 V30 M26 8 V30 M30 36 H48 M30 42 H48" stroke={shellDk} strokeWidth={1.8} />
+      </Svg>
+    ),
+    stairsSpiral: (
+      <Svg width={size} height={size} viewBox="0 0 56 56">
+        <Circle cx="28" cy="28" r="20" fill={c} opacity={0.4} />
+        <Circle cx="28" cy="28" r="20" fill="none" stroke={shellDk} strokeWidth={2.5} />
+        <Path d="M28 28 L28 8 M28 28 L45 18 M28 28 L48 28 M28 28 L45 38 M28 28 L28 48 M28 28 L11 38" stroke={shellDk} strokeWidth={1.8} />
+      </Svg>
+    ),
+    landing: (
+      <Svg width={size} height={size * 0.8} viewBox="0 0 60 48">
+        <Rect x="12" y="10" width="36" height="28" rx="2" fill={c} opacity={0.5} />
+        <Rect x="12" y="10" width="36" height="28" rx="2" fill="none" stroke={shellDk} strokeWidth={2.5} />
+      </Svg>
+    ),
+    ramp: (
+      <Svg width={size * 0.7} height={size} viewBox="0 0 44 60">
+        <Rect x="12" y="6" width="20" height="48" rx="2" fill={c} opacity={0.45} />
+        <Rect x="12" y="6" width="20" height="48" rx="2" fill="none" stroke={shellDk} strokeWidth={2.5} />
+        <Path d="M22 46 V14 M15 22 L22 14 L29 22" fill="none" stroke={shellDk} strokeWidth={2.4} strokeLinejoin="round" strokeLinecap="round" />
+      </Svg>
+    ),
+    column: (
+      <Svg width={size} height={size} viewBox="0 0 56 56">
+        <Circle cx="28" cy="28" r="14" fill={c} />
+        <Circle cx="28" cy="28" r="14" fill="none" stroke={shellDk} strokeWidth={3} />
+      </Svg>
+    ),
+    wallSegment: (
+      <Svg width={size} height={size * 0.4} viewBox="0 0 80 32">
+        <Rect x="6" y="12" width="68" height="8" rx="2" fill={shellDk} />
+      </Svg>
+    ),
+    archOpening: (
+      <Svg width={size} height={size * 0.85} viewBox="0 0 60 52">
+        <Path d="M12 46 V26 A16 16 0 0 1 44 26 V46" fill="none" stroke={shellDk} strokeWidth={3} />
+        <Path d="M12 46 V26 A16 16 0 0 1 44 26 V46" fill={c} opacity={0.35} />
+      </Svg>
+    ),
+
+    // ---- Doors & windows -----------------------------------------------
+    doorSingle: (
+      <Svg width={size} height={size} viewBox="0 0 56 56">
+        <Path d="M14 46 A32 32 0 0 1 46 14" fill="none" stroke={shellDk} strokeWidth={2} opacity={0.55} />
+        <Line x1="14" y1="46" x2="14" y2="14" stroke={c} strokeWidth={4} />
+        <Rect x="12" y="46" width="34" height="4" rx="1" fill={shellDk} />
+      </Svg>
+    ),
+    doorDouble: (
+      <Svg width={size} height={size} viewBox="0 0 56 56">
+        <Path d="M10 44 A18 18 0 0 1 28 26" fill="none" stroke={shellDk} strokeWidth={1.8} opacity={0.55} />
+        <Path d="M46 44 A18 18 0 0 0 28 26" fill="none" stroke={shellDk} strokeWidth={1.8} opacity={0.55} />
+        <Line x1="10" y1="44" x2="10" y2="26" stroke={c} strokeWidth={4} />
+        <Line x1="46" y1="44" x2="46" y2="26" stroke={c} strokeWidth={4} />
+        <Rect x="8" y="44" width="40" height="4" rx="1" fill={shellDk} />
+      </Svg>
+    ),
+    doorMainGate: (
+      <Svg width={size} height={size} viewBox="0 0 56 56">
+        <Rect x="8" y="14" width="40" height="32" rx="2" fill={c} opacity={0.4} />
+        <Rect x="8" y="14" width="40" height="32" rx="2" fill="none" stroke={shellDk} strokeWidth={3} />
+        <Path d="M18 14 V46 M28 14 V46 M38 14 V46" stroke={shellDk} strokeWidth={2} />
+      </Svg>
+    ),
+    doorSliding: (
+      <Svg width={size} height={size * 0.6} viewBox="0 0 72 44">
+        <Rect x="6" y="14" width="60" height="16" rx="2" fill="none" stroke={shellDk} strokeWidth={2} />
+        <Rect x="8" y="17" width="28" height="10" fill={c} opacity={0.7} />
+        <Rect x="36" y="17" width="28" height="10" fill={c} opacity={0.4} />
+        <Path d="M40 10 H52 M46 6 L52 10 L46 14" fill="none" stroke={shellDk} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" />
+      </Svg>
+    ),
+    windowFixed: (
+      <Svg width={size} height={size * 0.85} viewBox="0 0 60 52">
+        <Rect x="10" y="8" width="40" height="36" rx="2" fill={glass} opacity={0.6} />
+        <Rect x="10" y="8" width="40" height="36" rx="2" fill="none" stroke={shellDk} strokeWidth={3} />
+        <Line x1="30" y1="8" x2="30" y2="44" stroke={shellDk} strokeWidth={1.8} />
+        <Line x1="10" y1="26" x2="50" y2="26" stroke={shellDk} strokeWidth={1.8} />
+      </Svg>
+    ),
+    windowSliding: (
+      <Svg width={size} height={size * 0.85} viewBox="0 0 60 52">
+        <Rect x="10" y="8" width="40" height="36" rx="2" fill={glass} opacity={0.6} />
+        <Rect x="10" y="8" width="40" height="36" rx="2" fill="none" stroke={shellDk} strokeWidth={3} />
+        <Line x1="30" y1="8" x2="30" y2="44" stroke={shellDk} strokeWidth={2.4} />
+      </Svg>
+    ),
+    windowBay: (
+      <Svg width={size} height={size * 0.7} viewBox="0 0 68 48">
+        <Path d="M10 12 H58 L48 40 H20 Z" fill={glass} opacity={0.55} />
+        <Path d="M10 12 H58 L48 40 H20 Z" fill="none" stroke={shellDk} strokeWidth={3} strokeLinejoin="round" />
+        <Line x1="20" y1="40" x2="14" y2="12" stroke={shellDk} strokeWidth={1.6} />
+        <Line x1="48" y1="40" x2="54" y2="12" stroke={shellDk} strokeWidth={1.6} />
+      </Svg>
+    ),
+
     // ---- Seating --------------------------------------------------------
     sofa: (
       <Svg width={size} height={size * 0.6} viewBox="0 0 80 50">
@@ -386,6 +520,17 @@ export default function FurnitureGlyph({ kind = 'sofa', size = 80, color }) {
         <Line x1="18" y1="20" x2="38" y2="20" stroke={soft} strokeWidth={2.5} />
         <Line x1="18" y1="26" x2="42" y2="26" stroke={soft} strokeWidth={2.5} />
         <Path d="M20 32 L18 54 M40 32 L42 54" stroke={steelDk} strokeWidth={2.5} />
+      </Svg>
+    ),
+
+    // Heavy shipping crate / cargo box — used by premium storage & parking.
+    crate: (
+      <Svg width={size * 0.85} height={size * 0.8} viewBox="0 0 64 56">
+        <Rect x="9" y="12" width="46" height="38" rx="2" fill={wood} />
+        <Rect x="9" y="12" width="46" height="38" rx="2" fill="none" stroke={press} strokeWidth={2.6} />
+        <Path d="M9 12 L55 50 M55 12 L9 50" stroke={press} strokeWidth={2.4} />
+        <Rect x="9" y="12" width="46" height="9" fill={press} opacity={0.35} />
+        <Rect x="9" y="41" width="46" height="9" fill={press} opacity={0.35} />
       </Svg>
     ),
 

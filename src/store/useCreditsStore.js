@@ -22,6 +22,20 @@ export const useCreditsStore = create(
       dailyAdCap: CREDITS.dailyAdCap,
       perAd: CREDITS.perAd,
       isUnlimited: false,
+      // Subscription entitlement: 'free' | 'plus' | 'pro'. Authoritative value
+      // comes from the backend (/credits or /billing/my-status); defaults to
+      // 'free' offline. 'pro' implies unlimited downloads (mirrors isUnlimited).
+      tier: 'free',
+
+      // Derived entitlement helpers (read the current tier).
+      // Plus & Pro both remove ads and unlock the whole premium catalog.
+      adsDisabled: () => get().tier !== 'free',
+      premiumUnlocked: () => get().tier !== 'free',
+      // Only Pro (or the legacy isUnlimited flag) grants unlimited downloads.
+      unlimitedDownloads: () => get().tier === 'pro' || get().isUnlimited,
+
+      // Dev/local helper to preview a tier without a real purchase.
+      setTier: (tier) => set({ tier, isUnlimited: tier === 'pro' }),
 
       _rollDay() {
         const d = today();
@@ -41,6 +55,7 @@ export const useCreditsStore = create(
             dailyAdCap: s.dailyAdCap,
             perAd: s.perAd,
             isUnlimited: s.isUnlimited,
+            tier: s.tier || (s.isUnlimited ? 'pro' : 'free'),
           });
         } catch {
           // keep cached values on network error
@@ -69,6 +84,7 @@ export const useCreditsStore = create(
               dailyAdCap: s.dailyAdCap,
               perAd: s.perAd,
               isUnlimited: s.isUnlimited,
+              tier: s.tier || (s.isUnlimited ? 'pro' : 'free'),
             });
             return true;
           } catch {
@@ -83,13 +99,41 @@ export const useCreditsStore = create(
 
       addCredits: (n) => set((s) => ({ balance: s.balance + n })),
 
+      // Spend credits to place a catalog item. Local mode deducts `cost` from the
+      // balance; remote mode lets the backend validate the item's price. Returns
+      // true on success, false when short / on network error.
+      spendItem: async (cost, itemId) => {
+        if (get().premiumUnlocked()) return true; // subscribers place free
+        if (isRemote()) {
+          try {
+            const s = await creditsApi.spendItem(itemId);
+            set({
+              balance: s.balance,
+              isUnlimited: s.isUnlimited,
+              tier: s.tier || (s.isUnlimited ? 'pro' : 'free'),
+            });
+            return true;
+          } catch {
+            return false;
+          }
+        }
+        if ((cost || 0) <= 0) return true;
+        if (get().balance < cost) return false;
+        set((s) => ({ balance: s.balance - cost }));
+        return true;
+      },
+
       // Spend for an export. `kind` ('png'|'pdf'|'obj') is required for the
       // server; `amount` is used only in local mode. Returns true on success.
       spend: async (amount, kind) => {
         if (isRemote()) {
           try {
             const s = await creditsApi.spend(kind);
-            set({ balance: s.balance, isUnlimited: s.isUnlimited });
+            set({
+              balance: s.balance,
+              isUnlimited: s.isUnlimited,
+              tier: s.tier || (s.isUnlimited ? 'pro' : 'free'),
+            });
             return true;
           } catch {
             return false;

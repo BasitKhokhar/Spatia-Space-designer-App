@@ -10,7 +10,7 @@ import ProgressDots from '@/components/ui/ProgressDots';
 import Icon from '@/components/icons/Icon';
 import CurrencyPickerSheet from '@/components/sheets/CurrencyPickerSheet';
 import { useTheme } from '@/theme/useTheme';
-import { useProjectsStore } from '@/store/useProjectsStore';
+import { useProjectsStore, useActiveProject } from '@/store/useProjectsStore';
 import { DEFAULT_CURRENCY, currencyByCode } from '@/data/currencies';
 import { greyItems, interiorItems } from '@/data/constructionItems';
 import {
@@ -27,7 +27,7 @@ import { formatMoney } from '@/domain/cost';
 // continuation. State is committed to the active project's plan on Save.
 export default function EstimateScreen({ navigation }) {
   const updatePlan = useProjectsStore((s) => s.updatePlan);
-  const active = useProjectsStore((s) => s.getActive());
+  const active = useActiveProject();
   const sheetRef = useRef(null);
 
   const saved = active?.plan?.estimate || null;
@@ -36,7 +36,7 @@ export default function EstimateScreen({ navigation }) {
     saved ? currencyByCode(saved.currency?.code) : DEFAULT_CURRENCY
   );
   const [measurements, setMeasurements] = useState(
-    saved?.measurements || deriveMeasurements(active?.plan)
+    saved?.measurements || deriveMeasurements(active?.plan, active?.floors?.length || 1)
   );
   const [prices, setPrices] = useState(saved?.prices || {});
   // Active line items: grey only, or grey + interior once the user extends.

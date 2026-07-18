@@ -33,6 +33,22 @@ const ICONS = {
       strokeLinejoin="round"
     />
   ),
+  'chevron-up': (c, w) => (
+    <Path d="M5 15 L12 8 L19 15" stroke={c} strokeWidth={w} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+  ),
+  'chevron-down': (c, w) => (
+    <Path d="M5 9 L12 16 L19 9" stroke={c} strokeWidth={w} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+  ),
+  layers: (c, w) => (
+    <Path
+      d="M12 4 L20 8 L12 12 L4 8 Z M4 12 L12 16 L20 12 M4 16 L12 20 L20 16"
+      stroke={c}
+      strokeWidth={w}
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
   plus: (c, w) => (
     <Path d="M12 5 V19 M5 12 H19" stroke={c} strokeWidth={w} strokeLinecap="round" />
   ),
@@ -93,6 +109,9 @@ const ICONS = {
       <Circle cx="12" cy="12" r="8" stroke={c} strokeWidth={w} fill="none" />
       <Path d="M15 9 L13 13 L9 15 L11 11 Z" fill={c} />
     </G>
+  ),
+  menu: (c, w) => (
+    <Path d="M4 7 H20 M4 12 H20 M4 17 H20" stroke={c} strokeWidth={w} strokeLinecap="round" />
   ),
   grid: (c, w) => (
     <G>

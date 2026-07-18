@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { View, Pressable } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { View, Pressable, ScrollView } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import {
   Canvas,
@@ -18,9 +18,15 @@ import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
 import ItemPlacementSheet from '@/components/sheets/ItemPlacementSheet';
 import RoomStyleSheet from '@/components/sheets/RoomStyleSheet';
+import CatalogDrawer from '@/components/editor/CatalogDrawer';
+import FloorSwitcher from '@/components/editor/FloorSwitcher';
 import { useTheme } from '@/theme/useTheme';
-import { useProjectsStore } from '@/store/useProjectsStore';
+import { useProjectsStore, useActiveProject } from '@/store/useProjectsStore';
+import { ensurePlaceable } from '@/domain/unlock';
+import { isShopRoom } from '@/data/roomTypes';
+import { shapePolygon } from '@/data/structure';
 import {
+  addFurnitureItem,
   updateFurnitureItem,
   removeFurnitureItem,
   duplicateFurnitureItem,
@@ -33,27 +39,33 @@ import {
   setMaterials,
   setFootprint,
   resizePlan,
-  planArea,
   snap,
+  itemDims,
 } from '@/domain/floorplan';
 import { floorMaterialById } from '@/data/materials';
-import { estimateCost, formatMoney } from '@/domain/cost';
 import { ROUTES } from '@/navigation/routes';
 
 const TOOLS = [
-  { id: 'select', icon: 'move', hint: 'Drag to move. Tap an item to select it.' },
-  { id: 'outline', icon: 'polygon', hint: 'Tap to trace the outer shape. Tap the first dot to close it.' },
-  { id: 'wall', icon: 'wall', hint: 'Tap to drop wall points. Tap Finish to end.' },
-  { id: 'room', icon: 'square', hint: 'Tap two corners to add a room / partition.' },
-  { id: 'door', icon: 'door', hint: 'Tap a wall to cut a doorway.' },
-  { id: 'window', icon: 'window', hint: 'Tap a wall to place a window.' },
-  { id: 'measure', icon: 'ruler', hint: 'Tap two points to measure the distance.' },
+  { id: 'select', icon: 'move', label: 'Select', hint: 'Drag to move. Tap an item to select it.' },
+  { id: 'outline', icon: 'polygon', label: 'Outline', hint: 'Tap to trace the outer shape. Tap the first dot to close it.' },
+  { id: 'wall', icon: 'wall', label: 'Wall', hint: 'Tap to drop wall points. Tap Finish to end.' },
+  { id: 'room', icon: 'square', label: 'Room', hint: 'Tap two corners to add a room / partition.' },
+  { id: 'door', icon: 'door', label: 'Door', hint: 'Tap a wall to cut a doorway.' },
+  { id: 'window', icon: 'window', label: 'Window', hint: 'Tap a wall to place a window.' },
+  { id: 'measure', icon: 'ruler', label: 'Measure', hint: 'Tap two points to measure the distance.' },
 ];
 
 export default function FloorPlanEditorScreen({ navigation }) {
   const { colors, radius, isDark, shadows } = useTheme();
-  const project = useProjectsStore((s) => s.getActive());
+  const insets = useSafeAreaInsets();
+  const project = useActiveProject();
   const updatePlan = useProjectsStore((s) => s.updatePlan);
+  const addFloor = useProjectsStore((s) => s.addFloor);
+  const cloneFloor = useProjectsStore((s) => s.cloneFloor);
+  const deleteFloor = useProjectsStore((s) => s.deleteFloor);
+  const renameFloor = useProjectsStore((s) => s.renameFloor);
+  const setActiveFloor = useProjectsStore((s) => s.setActiveFloor);
+  const moveFloor = useProjectsStore((s) => s.moveFloor);
 
   const [plan, setPlan] = useState(() => project?.plan);
   const [tool, setTool] = useState('select');
@@ -66,9 +78,11 @@ export default function FloorPlanEditorScreen({ navigation }) {
   const [pending, setPending] = useState(null); // { type:'wall'|'room', x, y }
   const [measure, setMeasure] = useState(null); // { a:{x,y}, b:{x,y}|null }
   const [outline, setOutline] = useState(null); // freeform perimeter draft: [{x,y}...]
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const sheetRef = useRef(null);
   const styleSheetRef = useRef(null);
+  const floorSheetRef = useRef(null);
   const history = useRef({ past: [], future: [] });
 
   // Live refs so gesture handlers (runOnJS) read current values.
@@ -98,6 +112,21 @@ export default function FloorPlanEditorScreen({ navigation }) {
   useEffect(() => {
     if (project && plan) updatePlan(project.id, plan);
   }, [plan]); // eslint-disable-line
+
+  // Switching the active floor loads that floor's plan into the editor and
+  // resets transient editing state + undo history.
+  const activeFloorId = project?.activeFloorId;
+  useEffect(() => {
+    const p = project?.plan;
+    if (!p) return;
+    setPlan(p);
+    setSelectedId(null);
+    setPending(null);
+    setMeasure(null);
+    setOutline(null);
+    history.current = { past: [], future: [] };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeFloorId]);
 
   // Reset in-progress drafts when switching tools.
   useEffect(() => {
@@ -152,29 +181,47 @@ export default function FloorPlanEditorScreen({ navigation }) {
     if (!refs.current.snapOn) return { x: Math.round(pt.x * 100) / 100, y: Math.round(pt.y * 100) / 100 };
     return { x: snap(pt.x), y: snap(pt.y) };
   };
+  // Hit-test in the item's rotated local frame so rotated items select correctly.
   const hitTest = (pt) => {
     const items = refs.current.plan?.furniture || [];
     for (let i = items.length - 1; i >= 0; i--) {
       const f = items[i];
-      const hw = (f.w * f.scale) / 2;
-      const hd = (f.d * f.scale) / 2;
-      if (Math.abs(pt.x - f.x) <= hw && Math.abs(pt.y - f.y) <= hd) return f;
+      const { w, d } = itemDims(f);
+      const rad = -(f.rotation * Math.PI) / 180;
+      const dx = pt.x - f.x;
+      const dy = pt.y - f.y;
+      const lx = dx * Math.cos(rad) - dy * Math.sin(rad);
+      const ly = dx * Math.sin(rad) + dy * Math.cos(rad);
+      if (Math.abs(lx) <= w / 2 && Math.abs(ly) <= d / 2) return f;
     }
     return null;
   };
 
-  // Rotate / resize handle positions (plan meters) for a furniture item.
+  // The 8 resize handles (4 corners + 4 edge midpoints, each carrying a local
+  // direction) plus the rotate handle — all in plan meters, in the item's
+  // rotated frame. Edge handles resize one axis; corners resize both.
   const handlePositions = (f) => {
     const rad = (f.rotation * Math.PI) / 180;
     const cos = Math.cos(rad);
     const sin = Math.sin(rad);
-    const halfW = (f.w * f.scale) / 2;
-    const halfD = (f.d * f.scale) / 2;
+    const { w, d } = itemDims(f);
+    const halfW = w / 2;
+    const halfD = d / 2;
     const gap = 26 / (ppm * refs.current.zoom);
     const local = (lx, ly) => ({ x: f.x + lx * cos - ly * sin, y: f.y + lx * sin + ly * cos });
+    const handle = (id, hx, hy) => ({ id, dx: hx, dy: hy, halfW, halfD, ...local(hx * halfW, hy * halfD) });
     return {
+      handles: [
+        handle('tl', -1, -1),
+        handle('t', 0, -1),
+        handle('tr', 1, -1),
+        handle('r', 1, 0),
+        handle('br', 1, 1),
+        handle('b', 0, 1),
+        handle('bl', -1, 1),
+        handle('l', -1, 0),
+      ],
       rotate: local(0, -(halfD + gap)),
-      resize: local(halfW, halfD),
       top: local(0, -halfD),
     };
   };
@@ -193,20 +240,31 @@ export default function FloorPlanEditorScreen({ navigation }) {
             const sel = r.plan?.furniture.find((f) => f.id === r.selectedId);
             if (sel) {
               const h = handlePositions(sel);
-              const thr = 28 / (ppm * r.zoom);
+              const thr = 26 / (ppm * r.zoom);
               if (Math.hypot(pt.x - h.rotate.x, pt.y - h.rotate.y) <= thr) {
                 pushHistory();
                 drag.current = { mode: 'rotate', id: sel.id, center: { x: sel.x, y: sel.y } };
                 return;
               }
-              if (Math.hypot(pt.x - h.resize.x, pt.y - h.resize.y) <= thr) {
+              // Nearest resize handle within the tap threshold.
+              let best = null;
+              for (const hd of h.handles) {
+                const dist = Math.hypot(pt.x - hd.x, pt.y - hd.y);
+                if (dist <= thr && (!best || dist < best.dist)) best = { hd, dist };
+              }
+              if (best) {
                 pushHistory();
+                const s = sel.scale ?? 1;
                 drag.current = {
                   mode: 'resize',
                   id: sel.id,
+                  dir: { x: best.hd.dx, y: best.hd.dy },
                   center: { x: sel.x, y: sel.y },
-                  startScale: sel.scale,
-                  startDist: Math.max(0.05, Math.hypot(pt.x - sel.x, pt.y - sel.y)),
+                  rot: sel.rotation,
+                  baseW: sel.w * s,
+                  baseD: sel.d * s,
+                  oldHalfW: best.hd.halfW,
+                  oldHalfD: best.hd.halfD,
                 };
                 return;
               }
@@ -236,10 +294,38 @@ export default function FloorPlanEditorScreen({ navigation }) {
             setPlan((prev) => updateFurnitureItem(prev, d.id, { rotation: deg }));
           } else if (d.mode === 'resize') {
             const pt = screenToPlan(e.x, e.y);
-            const dist = Math.hypot(pt.x - d.center.x, pt.y - d.center.y);
-            let sc = Math.max(0.4, Math.min(4, d.startScale * (dist / d.startDist)));
-            if (r.snapOn) sc = Math.round(sc * 20) / 20;
-            setPlan((prev) => updateFurnitureItem(prev, d.id, { scale: sc }));
+            const rad = (d.rot * Math.PI) / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+            // Pointer in the item's local frame, relative to the start center.
+            const dxp = pt.x - d.center.x;
+            const dyp = pt.y - d.center.y;
+            const lx = dxp * cos + dyp * sin;
+            const ly = -dxp * sin + dyp * cos;
+            const MIN = 0.3; // never smaller than 30 cm on an axis
+            let halfW = d.oldHalfW;
+            let halfD = d.oldHalfD;
+            let ox = 0;
+            let oy = 0;
+            if (d.dir.x !== 0) {
+              const ax = -d.dir.x * d.oldHalfW; // opposite edge stays put
+              let newW = Math.max(MIN, Math.abs(lx - ax));
+              if (r.snapOn) newW = Math.max(MIN, snap(newW));
+              halfW = newW / 2;
+              ox = ax + d.dir.x * halfW;
+            }
+            if (d.dir.y !== 0) {
+              const ay = -d.dir.y * d.oldHalfD;
+              let newD = Math.max(MIN, Math.abs(ly - ay));
+              if (r.snapOn) newD = Math.max(MIN, snap(newD));
+              halfD = newD / 2;
+              oy = ay + d.dir.y * halfD;
+            }
+            const nx = d.center.x + (ox * cos - oy * sin);
+            const ny = d.center.y + (ox * sin + oy * cos);
+            const sx = (2 * halfW) / d.baseW;
+            const sy = (2 * halfD) / d.baseD;
+            setPlan((prev) => updateFurnitureItem(prev, d.id, { x: nx, y: ny, sx, sy }));
           } else if (d.mode === 'pan') {
             setOffset({ x: d.startOffset.x + e.translationX, y: d.startOffset.y + e.translationY });
           }
@@ -338,6 +424,25 @@ export default function FloorPlanEditorScreen({ navigation }) {
   const rotateSelected90 = () =>
     applyCommit((p) => updateFurnitureItem(p, selectedId, { rotation: (selected.rotation + 90) % 360 }));
 
+  // Drop a catalog item into the middle of the plan. Premium items route through
+  // the rewarded-ad unlock first; the drawer stays open for rapid placement.
+  const addItem = async (item) => {
+    const ok = await ensurePlaceable(item);
+    if (!ok) return;
+    let newId = null;
+    applyCommit((p) => {
+      const next = addFurnitureItem(p, item, { x: p.width / 2, y: p.length / 2 });
+      newId = next.furniture[next.furniture.length - 1].id;
+      return next;
+    });
+    if (newId) {
+      setTool('select');
+      setSelectedId(newId);
+    }
+  };
+
+  const drawerCategory = project && isShopRoom(project.roomType) ? 'Retail' : undefined;
+
   // ---- grid path ----
   const gridPath = useMemo(() => {
     if (!plan) return null;
@@ -363,6 +468,136 @@ export default function FloorPlanEditorScreen({ navigation }) {
     return p;
   }, [plan?.footprint, ppm]);
 
+  // Skia elements for a placed structure/opening shell, drawn in the item's local
+  // frame (origin = center) at the given pixel footprint. Rooms fill grey + stroke
+  // walls; stairs draw treads; columns/walls fill; doors/windows draw leaves/panes.
+  const structureEls = (f, wPx, dPx) => {
+    const shape = f.shape || {};
+    const fill = f.color || '#B9B2A6';
+    const stroke = wallStrokeColor;
+    const strokeW = Math.max(2.5, Math.min(wPx, dPx) * 0.05);
+    const hw = wPx / 2;
+    const hd = dPx / 2;
+    const els = [];
+    const outline = (op = 0.5) => {
+      els.push(<Rect key="of" x={-hw} y={-hd} width={wPx} height={dPx} color={fill} opacity={op} />);
+      els.push(<Rect key="os" x={-hw} y={-hd} width={wPx} height={dPx} color={stroke} style="stroke" strokeWidth={strokeW} />);
+    };
+
+    if (shape.type === 'polygon') {
+      const poly = shapePolygon(shape.kind) || [[0, 0], [1, 0], [1, 1], [0, 1]];
+      const p = Skia.Path.Make();
+      poly.forEach(([nx, ny], i) => {
+        const x = (nx - 0.5) * wPx;
+        const y = (ny - 0.5) * dPx;
+        if (i === 0) p.moveTo(x, y);
+        else p.lineTo(x, y);
+      });
+      p.close();
+      els.push(<Path key="fill" path={p} color={fill} opacity={0.55} />);
+      els.push(<Path key="wall" path={p} color={stroke} style="stroke" strokeWidth={strokeW} strokeJoin="round" />);
+    } else if (shape.type === 'wall') {
+      els.push(<RoundedRect key="w" x={-hw} y={-hd} width={wPx} height={dPx} r={2} color={stroke} />);
+    } else if (shape.type === 'column') {
+      if (shape.round) {
+        const r = Math.min(hw, hd);
+        els.push(<Circle key="c" cx={0} cy={0} r={r} color={fill} />);
+        els.push(<Circle key="cs" cx={0} cy={0} r={r} color={stroke} style="stroke" strokeWidth={strokeW} />);
+      } else {
+        els.push(<Rect key="r" x={-hw} y={-hd} width={wPx} height={dPx} color={fill} />);
+        els.push(<Rect key="rs" x={-hw} y={-hd} width={wPx} height={dPx} color={stroke} style="stroke" strokeWidth={strokeW} />);
+      }
+    } else if (shape.type === 'stairs') {
+      outline(0.5);
+      const steps = shape.steps || 12;
+      const tp = Skia.Path.Make();
+      if (shape.turn === 'spiral') {
+        const R = Math.min(hw, hd);
+        els.push(<Circle key="sc" cx={0} cy={0} r={R} color={stroke} style="stroke" strokeWidth={strokeW} />);
+        for (let i = 0; i < steps; i++) {
+          const a = (i / steps) * Math.PI * 2;
+          tp.moveTo(0, 0);
+          tp.lineTo(Math.cos(a) * R, Math.sin(a) * R);
+        }
+      } else if (shape.turn === 'l') {
+        const n = Math.max(2, Math.round(steps / 2));
+        for (let i = 1; i < n; i++) {
+          const x = -hw + (i / n) * wPx;
+          tp.moveTo(x, -hd);
+          tp.lineTo(x, 0);
+        }
+        for (let i = 1; i < n; i++) {
+          const y = (i / n) * hd;
+          tp.moveTo(-hw, y);
+          tp.lineTo(hw, y);
+        }
+      } else {
+        for (let i = 1; i < steps; i++) {
+          const y = -hd + (i / steps) * dPx;
+          tp.moveTo(-hw, y);
+          tp.lineTo(hw, y);
+        }
+      }
+      els.push(<Path key="t" path={tp} color={stroke} style="stroke" strokeWidth={Math.max(1, strokeW * 0.6)} />);
+    } else if (shape.type === 'ramp') {
+      outline(0.5);
+      const ar = Skia.Path.Make();
+      ar.moveTo(0, hd * 0.7);
+      ar.lineTo(0, -hd * 0.7);
+      ar.moveTo(-wPx * 0.16, -hd * 0.35);
+      ar.lineTo(0, -hd * 0.7);
+      ar.lineTo(wPx * 0.16, -hd * 0.35);
+      els.push(<Path key="a" path={ar} color={stroke} style="stroke" strokeWidth={strokeW} />);
+    } else if (shape.type === 'door') {
+      els.push(<Rect key="frame" x={-hw} y={-hd} width={wPx} height={dPx} color={fill} />);
+      const swing = (hingeX, sign) => {
+        const R = shape.leaves === 2 ? wPx / 2 : wPx;
+        const leaf = Skia.Path.Make();
+        leaf.moveTo(hingeX, 0);
+        leaf.lineTo(hingeX, -R);
+        const arc = Skia.Path.Make();
+        for (let i = 0; i <= 8; i++) {
+          const a = (i / 8) * (Math.PI / 2);
+          const x = hingeX + sign * Math.sin(a) * R;
+          const y = -Math.cos(a) * R;
+          if (i === 0) arc.moveTo(x, y);
+          else arc.lineTo(x, y);
+        }
+        els.push(<Path key={`leaf${hingeX}`} path={leaf} color={colors.accent} style="stroke" strokeWidth={strokeW} />);
+        els.push(<Path key={`arc${hingeX}`} path={arc} color={colors.accent} style="stroke" strokeWidth={1.5} opacity={0.7} />);
+      };
+      if (shape.slide) {
+        const p = Skia.Path.Make();
+        p.moveTo(-hw, -1.5);
+        p.lineTo(1, -1.5);
+        p.moveTo(-1, 1.5);
+        p.lineTo(hw, 1.5);
+        els.push(<Path key="slide" path={p} color={colors.accent} style="stroke" strokeWidth={Math.max(3, strokeW)} />);
+      } else if (shape.leaves === 2) {
+        swing(-hw, 1);
+        swing(hw, -1);
+      } else {
+        swing(-hw, 1);
+      }
+    } else if (shape.type === 'window') {
+      els.push(<Rect key="frame" x={-hw} y={-hd} width={wPx} height={dPx} color={fill} />);
+      const pane = Skia.Path.Make();
+      pane.moveTo(-hw, 0);
+      pane.lineTo(hw, 0);
+      els.push(<Path key="pane" path={pane} color={isDark ? '#7FA9C4' : '#5B87A6'} style="stroke" strokeWidth={Math.max(2, strokeW * 0.7)} />);
+      if (shape.slide) {
+        const t = Skia.Path.Make();
+        t.moveTo(0, -hd);
+        t.lineTo(0, hd);
+        els.push(<Path key="mull" path={t} color={stroke} style="stroke" strokeWidth={1.5} />);
+      }
+    } else {
+      // arch / fallback
+      outline(0.7);
+    }
+    return els;
+  };
+
   if (!plan) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg, alignItems: 'center', justifyContent: 'center' }}>
@@ -371,8 +606,8 @@ export default function FloorPlanEditorScreen({ navigation }) {
     );
   }
 
-  const cost = estimateCost(plan);
-  const activeTool = TOOLS.find((t) => t.id === tool);
+  // Height reserved by the bottom tool footer, so floating controls clear it.
+  const footerH = 60 + Math.max(insets.bottom, 10);
 
   // Precompute overlay label positions (dimensions + measurement).
   const dimLabels = showDims
@@ -485,10 +720,11 @@ export default function FloorPlanEditorScreen({ navigation }) {
                 return <Group key={o.id}>{els}</Group>;
               })}
 
-              {/* furniture */}
+              {/* furniture & structure shells */}
               {plan.furniture.map((f) => {
-                const w = f.w * f.scale * ppm;
-                const d = f.d * f.scale * ppm;
+                const dims = itemDims(f);
+                const w = dims.w * ppm;
+                const d = dims.d * ppm;
                 const isSel = f.id === selectedId;
                 return (
                   <Group
@@ -499,9 +735,20 @@ export default function FloorPlanEditorScreen({ navigation }) {
                       { rotate: (f.rotation * Math.PI) / 180 },
                     ]}
                   >
-                    <RoundedRect x={-w / 2} y={-d / 2} width={w} height={d} r={8} color={f.color} opacity={0.92} />
-                    {/* front indicator */}
-                    <Line p1={{ x: 0, y: -d / 2 }} p2={{ x: 0, y: -d / 2 + Math.min(14, d * 0.3) }} color="#ffffff" strokeWidth={2} opacity={0.7} />
+                    {f.structure
+                      ? structureEls(f, w, d)
+                      : [
+                          <RoundedRect key="body" x={-w / 2} y={-d / 2} width={w} height={d} r={8} color={f.color} opacity={0.92} />,
+                          // front indicator
+                          <Line
+                            key="front"
+                            p1={{ x: 0, y: -d / 2 }}
+                            p2={{ x: 0, y: -d / 2 + Math.min(14, d * 0.3) }}
+                            color="#ffffff"
+                            strokeWidth={2}
+                            opacity={0.7}
+                          />,
+                        ]}
                     {isSel ? (
                       <RoundedRect
                         x={-w / 2 - 4}
@@ -526,19 +773,37 @@ export default function FloorPlanEditorScreen({ navigation }) {
               {selected
                 ? (() => {
                     const h = handlePositions(selected);
-                    const r = planToScreen(h.rotate.x, h.rotate.y);
-                    const rz = planToScreen(h.resize.x, h.resize.y);
+                    const rot = planToScreen(h.rotate.x, h.rotate.y);
                     const top = planToScreen(h.top.x, h.top.y);
+                    const pts = h.handles.map((hd) => ({ id: hd.id, ...planToScreen(hd.x, hd.y) }));
+                    const corners = ['tl', 'tr', 'br', 'bl'].map((id) => pts.find((p) => p.id === id));
+                    const box = Skia.Path.Make();
+                    corners.forEach((c, i) => (i === 0 ? box.moveTo(c.sx, c.sy) : box.lineTo(c.sx, c.sy)));
+                    box.close();
                     const link = Skia.Path.Make();
                     link.moveTo(top.sx, top.sy);
-                    link.lineTo(r.sx, r.sy);
+                    link.lineTo(rot.sx, rot.sy);
                     return (
                       <Group>
+                        <Path path={box} color={colors.accent} style="stroke" strokeWidth={1.5} />
                         <Path path={link} color={colors.accent} style="stroke" strokeWidth={1.5} />
-                        <Circle cx={r.sx} cy={r.sy} r={10} color="#fff" />
-                        <Circle cx={r.sx} cy={r.sy} r={10} color={colors.accent} style="stroke" strokeWidth={2} />
-                        <Circle cx={rz.sx} cy={rz.sy} r={9} color={colors.accent} />
-                        <Circle cx={rz.sx} cy={rz.sy} r={9} color="#fff" style="stroke" strokeWidth={2} />
+                        <Circle cx={rot.sx} cy={rot.sy} r={10} color="#fff" />
+                        <Circle cx={rot.sx} cy={rot.sy} r={10} color={colors.accent} style="stroke" strokeWidth={2} />
+                        {pts.map((p) => (
+                          <Group key={p.id}>
+                            <RoundedRect x={p.sx - 6} y={p.sy - 6} width={12} height={12} r={3} color="#fff" />
+                            <RoundedRect
+                              x={p.sx - 6}
+                              y={p.sy - 6}
+                              width={12}
+                              height={12}
+                              r={3}
+                              color={colors.accent}
+                              style="stroke"
+                              strokeWidth={2}
+                            />
+                          </Group>
+                        ))}
                       </Group>
                     );
                   })()
@@ -641,7 +906,7 @@ export default function FloorPlanEditorScreen({ navigation }) {
         ) : null}
       </View>
 
-      {/* Top bar */}
+      {/* Header — back · undo / redo · menu */}
       <View
         style={{
           flexDirection: 'row',
@@ -652,139 +917,65 @@ export default function FloorPlanEditorScreen({ navigation }) {
         }}
       >
         <IconButton icon="chevron-left" onPress={() => navigation.goBack()} />
-        <Text variant="titleSm" numberOfLines={1} style={{ flex: 1, textAlign: 'center', marginHorizontal: 8 }}>
-          {project.name}
-        </Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
-          <IconButton icon="magnet" onPress={() => setSnapOn((s) => !s)} active={snapOn} />
-          <IconButton icon="ruler" onPress={() => setShowDims((s) => !s)} active={showDims} />
           <IconButton icon="undo" onPress={undo} tint={history.current.past.length ? colors.ink : colors.ink3} />
           <IconButton icon="redo" onPress={redo} tint={history.current.future.length ? colors.ink : colors.ink3} />
         </View>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <FloorsButton
+            count={project?.floors?.length || 1}
+            onPress={() => floorSheetRef.current?.present()}
+          />
+          <IconButton icon="menu" onPress={() => setDrawerOpen(true)} />
+        </View>
       </View>
 
-      {/* Left toolbar */}
-      <View
-        style={[
-          {
-            position: 'absolute',
-            left: 16,
-            top: 110,
-            width: 52,
-            backgroundColor: isDark ? '#0E0C0A' : colors.ink,
-            borderRadius: radius.xl,
-            paddingVertical: 10,
-            alignItems: 'center',
-            gap: 6,
-          },
-          shadows.e3,
-        ]}
-      >
-        {TOOLS.map((t) => {
-          const active = tool === t.id;
-          return (
-            <Pressable
-              key={t.id}
-              onPress={() => setTool(t.id)}
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 11,
-                backgroundColor: active ? colors.accent : 'transparent',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-            >
-              <Icon name={t.icon} size={17} color={active ? '#fff' : '#ADA79B'} strokeWidth={1.8} />
-            </Pressable>
-          );
-        })}
-        <View style={{ width: 28, height: 1, backgroundColor: '#332F28', marginVertical: 4 }} />
-        <Pressable
-          onPress={() => styleSheetRef.current?.present()}
-          style={{ width: 36, height: 36, borderRadius: 11, alignItems: 'center', justifyContent: 'center' }}
+      {/* Contextual selection bar — sits above the footer when an item is picked */}
+      {selected ? (
+        <View
+          style={[
+            {
+              position: 'absolute',
+              bottom: footerH + 12,
+              left: 16,
+              right: 16,
+              backgroundColor: colors.surface,
+              borderRadius: radius.lg,
+              borderWidth: 1,
+              borderColor: colors.line,
+              paddingHorizontal: 14,
+              paddingVertical: 10,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 10,
+            },
+            shadows.e3,
+          ]}
         >
-          <Icon name="palette" size={18} color="#ADA79B" strokeWidth={1.8} />
-        </Pressable>
-        <Pressable
-          onPress={() => navigation.navigate(ROUTES.catalog)}
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 11,
-            backgroundColor: colors.accent,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Icon name="plus" size={18} color="#fff" strokeWidth={2.4} />
-        </Pressable>
-      </View>
-
-      {/* Right panel */}
-      <View
-        style={[
-          {
-            position: 'absolute',
-            top: 110,
-            right: 16,
-            width: 158,
-            backgroundColor: colors.surface,
-            borderRadius: radius.lg,
-            borderWidth: 1,
-            borderColor: colors.line,
-            padding: 14,
-          },
-          shadows.e2,
-        ]}
-      >
-        {selected ? (
-          <>
-            <Text variant="caption" color="ink3">
+          <View style={{ flex: 1 }}>
+            <Text variant="titleSm" numberOfLines={1}>
               {selected.name}
             </Text>
-            <PropRow label="Width" value={`${(selected.w * selected.scale).toFixed(2)} m`} />
-            <PropRow label="Depth" value={`${(selected.d * selected.scale).toFixed(2)} m`} />
-            <PropRow label="Rotation" value={`${selected.rotation}°`} />
-            <View style={{ height: 1, backgroundColor: colors.lineSoft, marginVertical: 12 }} />
-            <View style={{ flexDirection: 'row', gap: 8 }}>
-              <PanelBtn bg={colors.accentSoft} onPress={openSheet}>
-                <Icon name="pencil" size={15} color={colors.accent} strokeWidth={2} />
-              </PanelBtn>
-              <PanelBtn bg={colors.surface2} onPress={rotateSelected90}>
-                <Icon name="rotate" size={15} color={colors.ink2} strokeWidth={2} />
-              </PanelBtn>
-            </View>
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-              <PanelBtn bg={colors.surface2} onPress={duplicateSelected}>
-                <Icon name="duplicate" size={15} color={colors.ink2} strokeWidth={2} />
-              </PanelBtn>
-              <PanelBtn bg={isDark ? '#3A2420' : '#FDECEA'} onPress={deleteSelected}>
-                <Icon name="trash" size={14} color={colors.dangerDark} strokeWidth={2} />
-              </PanelBtn>
-            </View>
-          </>
-        ) : (
-          <>
             <Text variant="caption" color="ink3">
-              {tool === 'select' ? 'Room' : activeTool.id.toUpperCase()}
+              {`${itemDims(selected).w.toFixed(2)} × ${itemDims(selected).d.toFixed(2)} m · ${selected.rotation}°`}
             </Text>
-            {tool === 'select' ? (
-              <>
-                <PropRow label="Size" value={`${plan.width.toFixed(1)}×${plan.length.toFixed(1)} m`} />
-                <PropRow label="Area" value={`${planArea(plan)} m²`} />
-                <PropRow label={plan.footprint ? 'Shape' : 'Walls'} value={plan.footprint ? 'Custom' : `${plan.walls.length}`} />
-                <PropRow label="Items" value={`${plan.furniture.length}`} />
-              </>
-            ) : null}
-            <Text variant="bodySm" color="ink3" style={{ marginTop: 10 }}>
-              {activeTool.hint}
-            </Text>
-          </>
-        )}
-      </View>
+          </View>
+          <SelBtn bg={colors.accentSoft} onPress={openSheet}>
+            <Icon name="pencil" size={16} color={colors.accent} strokeWidth={2} />
+          </SelBtn>
+          <SelBtn bg={colors.surface2} onPress={rotateSelected90}>
+            <Icon name="rotate" size={16} color={colors.ink2} strokeWidth={2} />
+          </SelBtn>
+          <SelBtn bg={colors.surface2} onPress={duplicateSelected}>
+            <Icon name="duplicate" size={16} color={colors.ink2} strokeWidth={2} />
+          </SelBtn>
+          <SelBtn bg={isDark ? '#3A2420' : '#FDECEA'} onPress={deleteSelected}>
+            <Icon name="trash" size={15} color={colors.dangerDark} strokeWidth={2} />
+          </SelBtn>
+        </View>
+      ) : null}
 
-      {/* Finish draft button */}
+      {/* Finish draft button — clears the current draft, above the footer */}
       {pending || (measure && measure.b) || (outline && outline.length >= 3) ? (
         <Pressable
           onPress={() => {
@@ -797,7 +988,7 @@ export default function FloorPlanEditorScreen({ navigation }) {
           style={[
             {
               position: 'absolute',
-              bottom: 100,
+              bottom: footerH + 16,
               alignSelf: 'center',
               height: 42,
               paddingHorizontal: 22,
@@ -815,105 +1006,58 @@ export default function FloorPlanEditorScreen({ navigation }) {
         </Pressable>
       ) : null}
 
-      {/* Zoom + cost */}
+      {/* Footer — one horizontal scroll of tools, toggles & actions */}
       <View
         style={[
           {
             position: 'absolute',
-            bottom: 40,
-            left: 16,
+            left: 0,
+            right: 0,
+            bottom: 0,
             backgroundColor: colors.surface,
-            borderRadius: radius.md,
-            overflow: 'hidden',
-            borderWidth: 1,
-            borderColor: colors.line,
+            borderTopWidth: 1,
+            borderTopColor: colors.line,
+            paddingTop: 8,
+            paddingBottom: Math.max(insets.bottom, 10),
           },
-          shadows.e2,
+          shadows.e3,
         ]}
       >
-        <Pressable onPress={() => setZoom((z) => Math.min(3.5, z + 0.2))} style={{ width: 44, height: 40, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: colors.lineSoft }}>
-          <Text style={{ fontSize: 18, color: colors.ink, fontWeight: '700' }}>+</Text>
-        </Pressable>
-        <Pressable onPress={() => setZoom((z) => Math.max(0.4, z - 0.2))} style={{ width: 44, height: 40, alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={{ fontSize: 18, color: colors.ink, fontWeight: '700' }}>−</Text>
-        </Pressable>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 12, gap: 6, alignItems: 'center' }}
+        >
+          {TOOLS.map((t) => (
+            <FooterButton
+              key={t.id}
+              icon={t.icon}
+              label={t.label}
+              active={tool === t.id}
+              onPress={() => setTool(t.id)}
+            />
+          ))}
+          <FooterDivider color={colors.line} />
+          <FooterButton icon="magnet" label="Snap" active={snapOn} onPress={() => setSnapOn((s) => !s)} />
+          <FooterButton icon="ruler" label="Dims" active={showDims} onPress={() => setShowDims((s) => !s)} />
+          <FooterButton icon="palette" label="Style" onPress={() => styleSheetRef.current?.present()} />
+          <FooterDivider color={colors.line} />
+          <FooterButton icon="building" label="Estimate" onPress={() => navigation.navigate(ROUTES.estimate)} />
+          <FooterButton icon="cube" label="3D" accent onPress={() => navigation.navigate(ROUTES.view3d)} />
+        </ScrollView>
       </View>
 
-      {cost > 0 ? (
-        <Pressable
-          onPress={() => styleSheetRef.current?.present()}
-          style={[
-            {
-              position: 'absolute',
-              bottom: 92,
-              left: 16,
-              backgroundColor: colors.surface,
-              borderRadius: radius.md,
-              borderWidth: 1,
-              borderColor: colors.line,
-              paddingHorizontal: 12,
-              paddingVertical: 8,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-            },
-            shadows.e2,
-          ]}
-        >
-          <Text style={{ fontSize: 13 }}>💰</Text>
-          <Text variant="bodySm" style={{ fontWeight: '800', color: colors.ink }}>
-            {formatMoney(cost)}
-          </Text>
-        </Pressable>
-      ) : null}
-
-      {/* Construction cost estimate */}
-      <Pressable
-        onPress={() => navigation.navigate(ROUTES.estimate)}
-        style={[
-          {
-            position: 'absolute',
-            bottom: 40,
-            left: 16,
-            height: 44,
-            paddingHorizontal: 16,
-            borderRadius: 22,
-            backgroundColor: colors.surface,
-            borderWidth: 1,
-            borderColor: colors.line,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-          },
-          shadows.e2,
-        ]}
-      >
-        <Icon name="building" size={16} color={colors.accent} strokeWidth={2.2} />
-        <Text style={{ fontFamily: 'Manrope_700Bold', fontSize: 14, color: colors.ink }}>Estimate</Text>
-      </Pressable>
-
-      {/* Switch to 3D */}
-      <Pressable
-        onPress={() => navigation.navigate(ROUTES.view3d)}
-        style={[
-          {
-            position: 'absolute',
-            bottom: 40,
-            right: 16,
-            height: 44,
-            paddingHorizontal: 18,
-            borderRadius: 22,
-            backgroundColor: colors.accent,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-          },
-          shadows.accent,
-        ]}
-      >
-        <Text style={{ color: '#fff', fontFamily: 'Manrope_700Bold', fontSize: 14 }}>Switch to 3D</Text>
-        <Icon name="cube" size={15} color="#fff" strokeWidth={2.4} />
-      </Pressable>
+      {/* Quick-add catalog drawer (opens from the header menu) */}
+      <CatalogDrawer
+        visible={drawerOpen}
+        initialCategory={drawerCategory}
+        onClose={() => setDrawerOpen(false)}
+        onAdd={addItem}
+        onViewDetails={(category) => {
+          setDrawerOpen(false);
+          navigation.navigate(ROUTES.catalog, { category });
+        }}
+      />
 
       <ItemPlacementSheet
         ref={sheetRef}
@@ -929,6 +1073,16 @@ export default function FloorPlanEditorScreen({ navigation }) {
         onWall={(hex) => applyCommit((p) => setMaterials(p, { wall: hex }))}
         onResize={(w, l) => applyCommit((p) => resizePlan(p, w, l))}
         onHeight={(h) => applyCommit((p) => ({ ...p, wallHeight: h }))}
+      />
+      <FloorSwitcher
+        ref={floorSheetRef}
+        project={project}
+        onSwitch={(fid) => setActiveFloor(project.id, fid)}
+        onAdd={() => addFloor(project.id)}
+        onClone={(fid) => cloneFloor(project.id, fid)}
+        onDelete={(fid) => deleteFloor(project.id, fid)}
+        onRename={(fid, name) => renameFloor(project.id, fid, name)}
+        onMove={(fid, dir) => moveFloor(project.id, fid, dir)}
       />
     </SafeAreaView>
   );
@@ -956,24 +1110,66 @@ function IconButton({ icon, onPress, tint, active }) {
   );
 }
 
-function PropRow({ label, value }) {
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
-      <Text variant="bodySm" color="ink2">
-        {label}
-      </Text>
-      <Text variant="bodySm" color="ink">
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function PanelBtn({ bg, onPress, children }) {
+// Header pill that opens the floor manager, showing the current floor count.
+function FloorsButton({ count, onPress }) {
+  const { colors, radius, shadows } = useTheme();
   return (
     <Pressable
       onPress={onPress}
-      style={{ flex: 1, height: 32, borderRadius: 9, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}
+      style={[
+        {
+          height: 40,
+          paddingHorizontal: 12,
+          borderRadius: radius.md,
+          backgroundColor: colors.surface,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 6,
+        },
+        shadows.e1,
+      ]}
+    >
+      <Icon name="layers" size={18} color={colors.ink} strokeWidth={2} />
+      <Text style={{ fontSize: 13, fontFamily: 'Manrope_700Bold', color: colors.ink }}>{count}</Text>
+    </Pressable>
+  );
+}
+
+// A footer tool/action pill: icon over a tiny label, highlighted when active.
+function FooterButton({ icon, label, active, accent, onPress }) {
+  const { colors, radius } = useTheme();
+  const bg = accent ? colors.accent : active ? colors.accentSoft : 'transparent';
+  const fg = accent ? '#fff' : active ? colors.accent : colors.ink2;
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        minWidth: 56,
+        height: 48,
+        paddingHorizontal: 10,
+        borderRadius: radius.md,
+        backgroundColor: bg,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 3,
+      }}
+    >
+      <Icon name={icon} size={19} color={fg} strokeWidth={1.9} />
+      <Text style={{ fontSize: 10.5, fontWeight: '700', color: fg }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+function FooterDivider({ color }) {
+  return <View style={{ width: 1, height: 30, backgroundColor: color, marginHorizontal: 4 }} />;
+}
+
+// A compact square action button used by the contextual selection bar.
+function SelBtn({ bg, onPress, children }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}
     >
       {children}
     </Pressable>

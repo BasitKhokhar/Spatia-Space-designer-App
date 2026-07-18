@@ -228,7 +228,11 @@ export function setMaterials(plan, patch) {
 
 // ---- Furniture -----------------------------------------------------------
 
-// Add a furniture instance from a catalog item at a plan position (meters).
+// Add a furniture / structure instance from a catalog item at a plan position
+// (meters). `sx`/`sy` are per-axis stretch factors (1 = catalog size) driven by
+// the 8-point manipulation box; `scale` stays a uniform multiplier (also height).
+// Structure shells carry `structure` + `shape` so the renderer draws walls /
+// treads instead of a plain glyph box.
 export function addFurnitureItem(plan, catalogItem, position) {
   const item = {
     id: uid('furn'),
@@ -243,9 +247,25 @@ export function addFurnitureItem(plan, catalogItem, position) {
     y: position?.y ?? plan.length / 2,
     rotation: 0,
     scale: 1,
+    sx: 1,
+    sy: 1,
     color: catalogItem.colors?.[0] ?? '#BC5B3A',
+    ...(catalogItem.structure ? { structure: true, shape: catalogItem.shape } : {}),
   };
   return { ...plan, furniture: [...plan.furniture, item] };
+}
+
+// Effective footprint of a placed item in meters, combining the uniform `scale`
+// with the per-axis `sx`/`sy`. Both default to 1 so items saved before the
+// 8-point box (no sx/sy) render exactly as before. Single source of truth for
+// the 2D editor, 3D view and OBJ exporter.
+export function itemDims(f) {
+  const s = f.scale ?? 1;
+  return {
+    w: f.w * s * (f.sx ?? 1),
+    d: f.d * s * (f.sy ?? 1),
+    h: f.h * s,
+  };
 }
 
 export function updateFurnitureItem(plan, id, patch) {

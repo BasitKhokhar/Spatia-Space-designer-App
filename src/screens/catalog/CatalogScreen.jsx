@@ -6,16 +6,23 @@ import Text from '@/components/ui/Text';
 import Input from '@/components/ui/Input';
 import Chip from '@/components/ui/Chip';
 import FurnitureCard from '@/components/catalog/FurnitureCard';
-import { CATALOG, CATEGORIES } from '@/data/catalog';
+import { CATALOG, CATEGORIES, isPremiumItem } from '@/data/catalog';
 import { isShopRoom } from '@/data/roomTypes';
-import { useProjectsStore } from '@/store/useProjectsStore';
+import { useProjectsStore, useActiveProject } from '@/store/useProjectsStore';
+import { useUnlocksStore } from '@/store/useUnlocksStore';
+import { useCreditsStore } from '@/store/useCreditsStore';
+import { ensurePlaceable } from '@/domain/unlock';
 import { addFurnitureItem } from '@/domain/floorplan';
 
-export default function CatalogScreen({ navigation }) {
-  const project = useProjectsStore((s) => s.getActive());
+export default function CatalogScreen({ navigation, route }) {
+  const project = useActiveProject();
   const updatePlan = useProjectsStore((s) => s.updatePlan);
+  const unlocked = useUnlocksStore((s) => s.unlocked);
+  const subscriber = useCreditsStore((s) => s.tier !== 'free');
+  const paramCategory = route?.params?.category;
   const [category, setCategory] = useState(
-    project && isShopRoom(project.roomType) ? 'Retail' : 'All'
+    (paramCategory && CATEGORIES.includes(paramCategory) && paramCategory) ||
+      (project && isShopRoom(project.roomType) ? 'Retail' : 'All')
   );
   const [query, setQuery] = useState('');
 
@@ -32,8 +39,11 @@ export default function CatalogScreen({ navigation }) {
     });
   }, [category, query]);
 
-  const addToProject = (item) => {
+  const addToProject = async (item) => {
     if (!project) return;
+    // Paid items spend credits (or route through the earn-ad flow) before placing.
+    const ok = await ensurePlaceable(item);
+    if (!ok) return;
     const next = addFurnitureItem(project.plan, item, {
       x: project.plan.width / 2,
       y: project.plan.length / 2,
@@ -58,7 +68,13 @@ export default function CatalogScreen({ navigation }) {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 24, gap: 9, paddingVertical: 16 }}
+        style={{ flexGrow: 0 }}
+        contentContainerStyle={{
+          paddingHorizontal: 24,
+          gap: 9,
+          paddingVertical: 16,
+          alignItems: 'center',
+        }}
       >
         {CATEGORIES.map((cat) => (
           <Chip key={cat} label={cat} active={cat === category} onPress={() => setCategory(cat)} />
@@ -76,7 +92,13 @@ export default function CatalogScreen({ navigation }) {
           }}
         >
           {items.map((item) => (
-            <FurnitureCard key={item.id} item={item} onAdd={() => addToProject(item)} style={{ width: '47%' }} />
+            <FurnitureCard
+              key={item.id}
+              item={item}
+              locked={isPremiumItem(item) && !subscriber && !unlocked[item.id]}
+              onAdd={() => addToProject(item)}
+              style={{ width: '47%' }}
+            />
           ))}
         </View>
         {items.length === 0 ? (

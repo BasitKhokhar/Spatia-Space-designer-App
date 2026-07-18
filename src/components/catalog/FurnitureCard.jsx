@@ -7,8 +7,10 @@ import Icon from '@/components/icons/Icon';
 import FurnitureGlyph from '@/components/graphics/FurnitureGlyph';
 import { useTheme } from '@/theme/useTheme';
 
-// Catalog grid item with an add (+) button.
-export default function FurnitureCard({ item, onAdd, style }) {
+// Catalog grid item. Free items show an add (+) button; premium items that are
+// still locked show a "watch ad to unlock" badge instead. The parent decides
+// what tapping does (add vs. run the unlock flow) via `onAdd`.
+export default function FurnitureCard({ item, onAdd, locked = false, style }) {
   const { colors, isDark } = useTheme();
   const from = isDark ? '#241A15' : '#F3E3DA';
   const to = isDark ? '#1A1511' : '#EAD3C6';
@@ -24,22 +26,32 @@ export default function FurnitureCard({ item, onAdd, style }) {
           position: 'absolute',
           top: 10,
           right: 10,
-          width: 28,
+          minWidth: 28,
           height: 28,
+          paddingHorizontal: locked ? 8 : 0,
           borderRadius: 9,
-          backgroundColor: colors.surface,
+          backgroundColor: locked ? colors.credit : colors.surface,
           alignItems: 'center',
           justifyContent: 'center',
+          flexDirection: 'row',
+          gap: 4,
         }}
       >
-        <Icon name="plus" size={16} color={colors.accent} strokeWidth={2.6} />
+        {locked ? (
+          <>
+            <Icon name="lock" size={12} color="#fff" strokeWidth={2.2} />
+            <Text style={{ fontSize: 11, fontWeight: '800', color: '#fff' }}>Ad</Text>
+          </>
+        ) : (
+          <Icon name="plus" size={16} color={colors.accent} strokeWidth={2.6} />
+        )}
       </Pressable>
       <View style={{ padding: 12 }}>
         <Text variant="titleSm" numberOfLines={1}>
           {item.name}
         </Text>
         <Text variant="bodySm" color="ink3" style={{ marginTop: 3 }}>
-          {item.category}
+          {locked ? 'Premium · unlock with an ad' : item.category}
         </Text>
       </View>
     </Card>

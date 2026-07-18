@@ -2,6 +2,7 @@ import { View } from 'react-native';
 import Svg, { Rect, G, Polygon } from 'react-native-svg';
 
 import { useTheme } from '@/theme/useTheme';
+import { itemDims } from '@/domain/floorplan';
 
 // Renders the actual plan (walls + furniture footprints) — used for PNG capture
 // and export previews.
@@ -30,8 +31,9 @@ export default function RoomPreview({ plan, width = 300, style }) {
           <Rect x={ox} y={oy} width={w} height={h} fill={isDark ? '#241C15' : '#F4ECE1'} stroke={colors.accent} strokeWidth={3} rx={4} />
         )}
         {plan.furniture.map((f) => {
-          const fw = f.w * f.scale * ppm;
-          const fd = f.d * f.scale * ppm;
+          const dm = itemDims(f);
+          const fw = dm.w * ppm;
+          const fd = dm.d * ppm;
           return (
             <G key={f.id}>
               <Rect

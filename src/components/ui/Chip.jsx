@@ -17,11 +17,19 @@ export default function Chip({ label, active = false, onPress, style }) {
           paddingHorizontal: 16,
           paddingVertical: 9,
           borderRadius: radius.pill,
+          justifyContent: 'center',
         },
         style,
       ]}
     >
-      <Text variant="label" color={active ? 'bg' : 'ink2'}>
+      {/* numberOfLines + roomy lineHeight and no font padding keep the label on
+          one line and stop Android from clipping the custom font vertically. */}
+      <Text
+        variant="label"
+        color={active ? 'bg' : 'ink2'}
+        numberOfLines={1}
+        style={{ lineHeight: 20, includeFontPadding: false, textAlignVertical: 'center' }}
+      >
         {label}
       </Text>
     </Pressable>

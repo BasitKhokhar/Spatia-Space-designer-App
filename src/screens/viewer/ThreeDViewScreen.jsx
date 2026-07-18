@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { View, Pressable, StyleSheet } from 'react-native';
+import { useRef, useState, useEffect, useMemo } from 'react';
+import { View, Pressable, StyleSheet, ScrollView, Animated, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { Canvas } from '@react-three/fiber/native';
@@ -8,35 +8,132 @@ import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
 import Button from '@/components/ui/Button';
 import { useTheme } from '@/theme/useTheme';
-import { useProjectsStore } from '@/store/useProjectsStore';
+import { useActiveProject } from '@/store/useProjectsStore';
 import { useCreditsStore } from '@/store/useCreditsStore';
 import Room3D from '@/three/Room3D';
+import ViewerControlsDrawer from '@/components/viewer/ViewerControlsDrawer';
 import { LIGHTING, LIGHTING_ORDER } from '@/three/lighting';
 import { ROUTES } from '@/navigation/routes';
 
+// Vertical field of view of the 3D camera (must match the <Canvas camera fov>).
+const FOV = 50;
+const TAN_HALF_FOV = Math.tan((FOV * Math.PI) / 180 / 2);
+
+// Gesture coach rows shown once on entry.
+const HINTS = [
+  { icon: 'move', label: 'Drag to orbit' },
+  { icon: 'expand', label: 'Pinch to zoom' },
+  { icon: 'rotate', label: 'Twist with two fingers to rotate' },
+];
+
+// Quick-snap camera angles offered on the view rail.
+const VIEW_PRESETS = [
+  { key: 'iso', label: '3D' },
+  { key: 'top', label: 'Top' },
+  { key: 'front', label: 'Front' },
+  { key: 'side', label: 'Side' },
+];
+
 export default function ThreeDViewScreen({ navigation }) {
   const { colors, radius, shadows } = useTheme();
-  const project = useProjectsStore((s) => s.getActive());
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  const project = useActiveProject();
   const balance = useCreditsStore((s) => s.balance);
   const [lighting, setLighting] = useState('golden');
   const [walk, setWalk] = useState(false);
+  const [autoRotate, setAutoRotate] = useState(false);
+  // Default to a solid, fully-closed building (all walls + roof visible from
+  // every angle) — the complete look. Cutaway is a toggle to peek inside.
+  const [cutaway, setCutaway] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [hiddenFloors, setHiddenFloors] = useState(() => new Set());
 
   const plan = project?.plan;
-  const span = plan ? Math.max(plan.width, plan.length) : 5;
-  const baseRadius = span * 1.6;
-  const minRadius = span * 0.35;
-  const maxRadius = span * 4;
+  const floors = useMemo(
+    () => (project?.floors?.length ? project.floors : plan ? [{ id: '__single', name: 'Ground floor', plan }] : []),
+    [project?.floors, plan]
+  );
+  const totalHeight = floors.reduce((s, f) => s + (f.plan.wallHeight || 2.6), 0) || 2.6;
+  const visibleFloors = useMemo(
+    () => new Set(floors.filter((f) => !hiddenFloors.has(f.id)).map((f) => f.id)),
+    [floors, hiddenFloors]
+  );
+  const toggleFloor = (id) =>
+    setHiddenFloors((prev) => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const span = floors.length ? Math.max(...floors.map((f) => Math.max(f.plan.width, f.plan.length))) : 5;
+  const baseRadius = Math.max(span * 1.6, totalHeight * 1.9);
+  const minRadius = span * 0.3;
+  // Allow zooming far out so the whole structure reads as a small object in
+  // space, the way premium plan viewers let you pull back for context.
+  const maxRadius = span * 7;
+
+  // World units covered by one screen pixel on the plane through the orbit
+  // target, at a given camera distance. Used to keep the touched point pinned
+  // under the fingers while pinch-zooming (focal-anchored zoom).
+  const worldPerPx = (r) => (2 * r * TAN_HALF_FOV) / screenH;
 
   // Shared camera state, mutated by gestures and damped toward by CameraRig.
+  //   velAz/velPolar — angular momentum applied by the rig after a fling
+  //   active        — number of in-flight touch gestures (0 = idle)
+  //   autoRotate    — turntable spin when idle
   const cam = useRef({
     azimuth: Math.PI * 0.75,
     polar: 0.9,
     radius: baseRadius,
-    target: [0, (plan?.wallHeight ?? 2.6) * 0.35, 0],
+    target: [0, totalHeight * 0.4, 0],
+    velAz: 0,
+    velPolar: 0,
+    active: 0,
+    autoRotate: false,
   }).current;
   const start = useRef({}).current;
 
+  // Fade-in gesture hint overlay, dismissed on first touch (or after a timeout).
+  const hintOpacity = useRef(new Animated.Value(0)).current;
+  const hintDone = useRef(false);
+
   const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  const dismissHints = () => {
+    if (hintDone.current) return;
+    hintDone.current = true;
+    Animated.timing(hintOpacity, { toValue: 0, duration: 350, useNativeDriver: true }).start();
+  };
+
+  // Re-show the gesture coach (from the drawer's "Camera controls").
+  const showHints = () => {
+    hintDone.current = false;
+    Animated.timing(hintOpacity, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+    setTimeout(dismissHints, 4200);
+  };
+
+  useEffect(() => {
+    Animated.timing(hintOpacity, {
+      toValue: 1,
+      duration: 450,
+      delay: 350,
+      useNativeDriver: true,
+    }).start();
+    const t = setTimeout(dismissHints, 5200);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Gesture lifecycle helpers: track how many touch gestures are live so the rig
+  // pauses momentum/turntable while the user is actively driving the camera.
+  const beginTouch = () => {
+    cam.active = (cam.active || 0) + 1;
+    dismissHints();
+  };
+  const endTouch = () => {
+    cam.active = Math.max(0, (cam.active || 0) - 1);
+  };
 
   // Vertical orbit range: from almost straight-down (top-down plan view) past
   // the horizon so you can tilt low and look *up* at the structure. The rig
@@ -45,14 +142,53 @@ export default function ThreeDViewScreen({ navigation }) {
   const POLAR_MIN = 0.04;
   const POLAR_MAX = Math.PI / 2 + 0.42;
 
-  const resetView = () => {
-    cam.azimuth = Math.PI * 0.75;
-    cam.polar = 0.9;
-    cam.radius = baseRadius;
+  const eyeY = totalHeight * 0.4;
+
+  // Re-frame the camera to a named angle. The rig damps toward these, so each
+  // press glides the camera into place instead of snapping.
+  const applyView = (view) => {
+    cam.velAz = 0;
+    cam.velPolar = 0;
     cam.target[0] = 0;
-    cam.target[1] = (plan?.wallHeight ?? 2.6) * 0.35;
+    cam.target[1] = eyeY;
     cam.target[2] = 0;
     if (walk) setWalk(false);
+    switch (view) {
+      case 'top': // straight-down floor-plan look
+        cam.polar = POLAR_MIN + 0.02;
+        cam.radius = baseRadius * 1.15;
+        break;
+      case 'front':
+        cam.azimuth = Math.PI / 2;
+        cam.polar = 1.3;
+        cam.radius = baseRadius * 1.05;
+        break;
+      case 'side':
+        cam.azimuth = 0;
+        cam.polar = 1.3;
+        cam.radius = baseRadius * 1.05;
+        break;
+      case 'iso':
+      default:
+        cam.azimuth = Math.PI * 0.75;
+        cam.polar = 0.9;
+        cam.radius = baseRadius;
+        break;
+    }
+  };
+
+  const resetView = () => applyView('iso');
+
+  const toggleAutoRotate = () => {
+    setAutoRotate((on) => {
+      const next = !on;
+      cam.autoRotate = next;
+      if (next) {
+        cam.velAz = 0;
+        cam.velPolar = 0;
+      }
+      return next;
+    });
   };
 
   // 1 finger → orbit freely (360° horizontal, top-down to below-horizon vertical)
@@ -62,43 +198,92 @@ export default function ThreeDViewScreen({ navigation }) {
     .onBegin(() => {
       start.azimuth = cam.azimuth;
       start.polar = cam.polar;
+      cam.velAz = 0;
+      cam.velPolar = 0;
+      beginTouch();
     })
     .onUpdate((e) => {
       cam.azimuth = start.azimuth + e.translationX * 0.008;
       cam.polar = clamp(start.polar - e.translationY * 0.006, POLAR_MIN, POLAR_MAX);
-    });
+    })
+    .onEnd((e) => {
+      // Fling: convert release velocity (px/s) into angular momentum (rad/s)
+      // using the same sensitivity as the drag, so the model keeps spinning.
+      cam.velAz = e.velocityX * 0.008;
+      cam.velPolar = -e.velocityY * 0.006;
+    })
+    .onFinalize(endTouch);
 
-  // 2 fingers drag → pan the model along the ground, relative to view direction
-  const panMove = Gesture.Pan()
-    .minPointers(2)
-    .averageTouches(true)
+  // 2 fingers → combined pan + focal-anchored zoom (Google-Maps style). Spread
+  // the fingers to zoom *into* the point between them, pinch to pull back, and
+  // slide both fingers to drag the model — the world point under the fingers
+  // stays glued to them the whole time, which is the premium touch feel.
+  const twoFinger = Gesture.Pinch()
     .runOnJS(true)
-    .onBegin(() => {
+    .onBegin((e) => {
+      start.radius = cam.radius;
       start.tx = cam.target[0];
       start.tz = cam.target[2];
       start.az = cam.azimuth;
+      start.fx = e.focalX;
+      start.fy = e.focalY;
+      beginTouch();
     })
     .onUpdate((e) => {
-      const az = start.az;
-      const s = cam.radius * 0.0022;
-      cam.target[0] = start.tx + (Math.sin(az) * e.translationX + Math.cos(az) * e.translationY) * s;
-      cam.target[2] = start.tz + (-Math.cos(az) * e.translationX + Math.sin(az) * e.translationY) * s;
-    });
+      const r0 = start.radius;
+      const r1 = clamp(r0 / (e.scale || 1), minRadius, maxRadius);
+      cam.radius = r1;
 
-  // pinch → zoom in/out, clamped to the room's size
-  const pinch = Gesture.Pinch()
+      const a = start.az;
+      const sinA = Math.sin(a);
+      const cosA = Math.cos(a);
+      const w0 = worldPerPx(r0);
+      const w1 = worldPerPx(r1);
+
+      // Screen offsets (from centre) of the finger centroid at gesture start vs.
+      // now. Solving "keep the start-focal world point under the current focal,
+      // at the new distance" gives both the drag and the zoom-toward-touch in a
+      // single expression.
+      const o0x = start.fx - screenW / 2;
+      const o0y = start.fy - screenH / 2;
+      const o1x = e.focalX - screenW / 2;
+      const o1y = e.focalY - screenH / 2;
+
+      cam.target[0] =
+        start.tx + w0 * (o0x * sinA + o0y * cosA) - w1 * (o1x * sinA + o1y * cosA);
+      cam.target[2] =
+        start.tz + w0 * (-o0x * cosA + o0y * sinA) - w1 * (-o1x * cosA + o1y * sinA);
+    })
+    .onFinalize(endTouch);
+
+  // 2 fingers twist → spin the model horizontally (azimuth), the way premium
+  // model viewers let you rotate with a two-finger turn. Runs simultaneously
+  // with the pan/zoom gesture, so you can turn, pan and zoom in one motion.
+  const twist = Gesture.Rotation()
     .runOnJS(true)
     .onBegin(() => {
-      start.radius = cam.radius;
+      start.rotAz = cam.azimuth;
+      cam.velAz = 0;
+      cam.velPolar = 0;
+      beginTouch();
     })
     .onUpdate((e) => {
-      cam.radius = clamp(start.radius / (e.scale || 1), minRadius, maxRadius);
-    });
+      cam.azimuth = start.rotAz - e.rotation;
+    })
+    .onEnd((e) => {
+      // Carry the twist's release velocity into the spin momentum.
+      cam.velAz = -e.velocity;
+    })
+    .onFinalize(endTouch);
 
   // double-tap → snap back to the default framing
   const doubleTap = Gesture.Tap().numberOfTaps(2).runOnJS(true).onEnd(resetView);
 
-  const gesture = Gesture.Simultaneous(Gesture.Exclusive(doubleTap, orbit), panMove, pinch);
+  const gesture = Gesture.Simultaneous(
+    Gesture.Exclusive(doubleTap, orbit),
+    twoFinger,
+    twist,
+  );
 
   const toggleLighting = () => {
     const idx = LIGHTING_ORDER.indexOf(lighting);
@@ -126,13 +311,47 @@ export default function ThreeDViewScreen({ navigation }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: preset.background }}>
+      <Canvas
+        shadows
+        style={StyleSheet.absoluteFill}
+        camera={{ position: [6, 5, 6], fov: FOV }}
+        gl={{ antialias: true }}
+      >
+        <Room3D floors={floors} visibleFloors={visibleFloors} lighting={lighting} cam={cam} cutaway={cutaway} />
+      </Canvas>
+
+      {/* Transparent touch layer sitting on top of the GL surface. R3F/native
+          installs its own touch responder on the Canvas, which swallows drags
+          before react-native-gesture-handler can see them; capturing gestures on
+          this overlay instead makes orbit / pan / pinch reliable on-device. The
+          header, side buttons and bottom sheet are rendered after this view, so
+          they stay above it and remain tappable. */}
       <GestureDetector gesture={gesture}>
-        <View style={StyleSheet.absoluteFill}>
-          <Canvas camera={{ position: [6, 5, 6], fov: 50 }}>
-            <Room3D plan={plan} lighting={lighting} cam={cam} />
-          </Canvas>
-        </View>
+        <View style={StyleSheet.absoluteFill} collapsable={false} />
       </GestureDetector>
+
+      {/* One-time gesture coach — fades out on first touch (or after ~5s). */}
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', opacity: hintOpacity }]}
+      >
+        <View
+          style={{
+            backgroundColor: 'rgba(20,19,17,0.78)',
+            borderRadius: radius.xl,
+            paddingVertical: 16,
+            paddingHorizontal: 20,
+            gap: 12,
+          }}
+        >
+          {HINTS.map((h) => (
+            <View key={h.label} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+              <Icon name={h.icon} size={18} color="#FFFFFF" strokeWidth={1.9} />
+              <Text style={{ color: '#FFFFFF', fontWeight: '600', fontSize: 14 }}>{h.label}</Text>
+            </View>
+          ))}
+        </View>
+      </Animated.View>
 
       <SafeAreaView edges={['top']} pointerEvents="box-none">
         {/* Header */}
@@ -165,82 +384,143 @@ export default function ThreeDViewScreen({ navigation }) {
               {preset.label}
             </Text>
           </Pressable>
-          <GlassButton onPress={toggleLighting}>
-            <Icon name={lighting === 'night' ? 'moon' : 'sun'} size={17} color={colors.ink} strokeWidth={1.8} />
-          </GlassButton>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <GlassButton onPress={toggleLighting}>
+              <Icon name={lighting === 'night' ? 'moon' : 'sun'} size={17} color={colors.ink} strokeWidth={1.8} />
+            </GlassButton>
+            <GlassButton onPress={() => setDrawerOpen(true)}>
+              <Icon name="layers" size={18} color={colors.ink} strokeWidth={1.9} />
+            </GlassButton>
+          </View>
         </View>
       </SafeAreaView>
 
-      {/* Walk mode + orbit hint */}
-      <Pressable
-        onPress={toggleWalk}
-        style={{
-          position: 'absolute',
-          left: 18,
-          bottom: 230,
-          height: 44,
-          paddingHorizontal: 16,
-          borderRadius: 22,
-          backgroundColor: 'rgba(255,255,255,0.92)',
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 8,
-        }}
+      {/* Footer — every control lives in one compact bar so the 3D view keeps
+          the whole screen above it. A horizontal scroll holds the camera
+          presets + toggles; the Export CTA sits beneath as the primary action. */}
+      <SafeAreaView
+        edges={['bottom']}
+        style={{ position: 'absolute', left: 0, right: 0, bottom: 0 }}
+        pointerEvents="box-none"
       >
-        <Icon name="walk" size={16} color={colors.accent} strokeWidth={1.8} />
-        <Text variant="bodySm" style={{ color: '#1B1A17', fontWeight: '700' }}>
-          {walk ? 'Orbit Mode' : 'Walk Mode'}
-        </Text>
-      </Pressable>
-
-      <Pressable
-        onPress={resetView}
-        style={{
-          position: 'absolute',
-          right: 18,
-          bottom: 230,
-          width: 64,
-          height: 64,
-          borderRadius: 32,
-          backgroundColor: 'rgba(255,255,255,0.92)',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name="rotate" size={28} color={colors.ink} strokeWidth={2} />
-      </Pressable>
-
-      {/* Bottom sheet */}
-      <View
-        style={[
-          {
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            backgroundColor: colors.surface,
-            borderTopLeftRadius: radius.xxl,
-            borderTopRightRadius: radius.xxl,
-            paddingHorizontal: 22,
-            paddingTop: 20,
-            paddingBottom: 34,
-          },
-          shadows.e3,
-        ]}
-      >
-        <View style={{ width: 40, height: 4, borderRadius: 3, backgroundColor: colors.line, alignSelf: 'center', marginBottom: 16 }} />
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-          <Text variant="title">{project.name} · 3D</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.surface2, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}>
-            <Text style={{ fontSize: 13 }}>🪙</Text>
-            <Text variant="bodySm" style={{ fontWeight: '700' }}>
-              {balance}
+        <View
+          style={[
+            {
+              backgroundColor: colors.surface,
+              borderTopLeftRadius: radius.xxl,
+              borderTopRightRadius: radius.xxl,
+              paddingTop: 14,
+              paddingBottom: 14,
+            },
+            shadows.e3,
+          ]}
+        >
+          {/* Title + credit balance */}
+          <View
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 20,
+              marginBottom: 12,
+            }}
+          >
+            <Text variant="bodySm" style={{ fontWeight: '700', color: colors.ink }}>
+              {project.name} · 3D
             </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.surface2, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 6 }}>
+              <Text style={{ fontSize: 13 }}>🪙</Text>
+              <Text variant="bodySm" style={{ fontWeight: '700' }}>
+                {balance}
+              </Text>
+            </View>
+          </View>
+
+          {/* Scrollable control rail — presets, walk toggle, auto-spin, recenter */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: 'center' }}
+            style={{ marginBottom: 14 }}
+          >
+            {VIEW_PRESETS.map((v) => (
+              <Chip key={v.key} label={v.label} onPress={() => applyView(v.key)} radius={radius} bg={colors.surface2} />
+            ))}
+            <View style={{ width: 1, height: 22, backgroundColor: colors.line, marginHorizontal: 2 }} />
+            <Chip
+              label={walk ? 'Orbit' : 'Walk'}
+              icon="walk"
+              active={walk}
+              onPress={toggleWalk}
+              radius={radius}
+              accent={colors.accent}
+              bg={colors.surface2}
+            />
+            <Chip
+              label={cutaway ? 'Cutaway' : 'Solid walls'}
+              icon="wall"
+              active={!cutaway}
+              onPress={() => setCutaway((c) => !c)}
+              radius={radius}
+              accent={colors.accent}
+              bg={colors.surface2}
+            />
+            <Chip
+              label="Auto-spin"
+              icon="rotate"
+              active={autoRotate}
+              onPress={toggleAutoRotate}
+              radius={radius}
+              accent={colors.accent}
+              bg={colors.surface2}
+            />
+            <Chip label="Recenter" icon="expand" onPress={resetView} radius={radius} bg={colors.surface2} />
+          </ScrollView>
+
+          {/* Primary action — advances to the export screen */}
+          <View style={{ paddingHorizontal: 20 }}>
+            <Button title="Export 3D — 5 credits" icon="upload" onPress={() => navigation.navigate(ROUTES.export)} />
           </View>
         </View>
-        <Button title="Export 3D — 5 credits" icon="upload" onPress={() => navigation.navigate(ROUTES.export)} />
-      </View>
+      </SafeAreaView>
+
+      <ViewerControlsDrawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        floors={floors}
+        activeFloorId={project.activeFloorId}
+        isFloorVisible={(id) => !hiddenFloors.has(id)}
+        onToggleFloor={toggleFloor}
+        onShare={() => { setDrawerOpen(false); navigation.navigate(ROUTES.export); }}
+        onExport={() => { setDrawerOpen(false); navigation.navigate(ROUTES.export); }}
+        onReset={() => { setDrawerOpen(false); resetView(); }}
+        onCameraControls={() => { setDrawerOpen(false); showHints(); }}
+      />
     </View>
+  );
+}
+
+function Chip({ label, icon, active, accent = '#1B1A17', onPress, radius, bg = 'rgba(255,255,255,0.92)' }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+        height: 38,
+        paddingHorizontal: 14,
+        borderRadius: radius?.md ?? 12,
+        backgroundColor: active ? accent : bg,
+      }}
+    >
+      {icon ? (
+        <Icon name={icon} size={15} color={active ? '#FFFFFF' : accent} strokeWidth={1.9} />
+      ) : null}
+      <Text variant="bodySm" style={{ color: active ? '#FFFFFF' : '#1B1A17', fontWeight: '700' }}>
+        {label}
+      </Text>
+    </Pressable>
   );
 }
 
