@@ -9,7 +9,6 @@ import {
   RoundedRect,
   Path,
   Circle,
-  Line,
   Skia,
   DashPathEffect,
 } from '@shopify/react-native-skia';
@@ -20,6 +19,7 @@ import ItemPlacementSheet from '@/components/sheets/ItemPlacementSheet';
 import RoomStyleSheet from '@/components/sheets/RoomStyleSheet';
 import CatalogDrawer from '@/components/editor/CatalogDrawer';
 import FloorSwitcher from '@/components/editor/FloorSwitcher';
+import FurnitureShape from '@/components/editor/FurnitureShape';
 import { useTheme } from '@/theme/useTheme';
 import { useProjectsStore, useActiveProject } from '@/store/useProjectsStore';
 import { ensurePlaceable } from '@/domain/unlock';
@@ -735,20 +735,7 @@ export default function FloorPlanEditorScreen({ navigation }) {
                       { rotate: (f.rotation * Math.PI) / 180 },
                     ]}
                   >
-                    {f.structure
-                      ? structureEls(f, w, d)
-                      : [
-                          <RoundedRect key="body" x={-w / 2} y={-d / 2} width={w} height={d} r={8} color={f.color} opacity={0.92} />,
-                          // front indicator
-                          <Line
-                            key="front"
-                            p1={{ x: 0, y: -d / 2 }}
-                            p2={{ x: 0, y: -d / 2 + Math.min(14, d * 0.3) }}
-                            color="#ffffff"
-                            strokeWidth={2}
-                            opacity={0.7}
-                          />,
-                        ]}
+                    {f.structure ? structureEls(f, w, d) : <FurnitureShape f={f} w={w} d={d} />}
                     {isSel ? (
                       <RoundedRect
                         x={-w / 2 - 4}

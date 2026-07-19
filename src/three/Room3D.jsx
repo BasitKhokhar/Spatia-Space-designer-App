@@ -5,7 +5,7 @@ import { Shape, DoubleSide } from 'three';
 import { LIGHTING } from './lighting';
 import { PlacedItem } from './models';
 import { floorMaterialById } from '@/data/materials';
-import { wallLength } from '@/domain/floorplan';
+import { wallLength, itemWallOpenings } from '@/domain/floorplan';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -223,7 +223,13 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
   // plaster ceiling that the level above sits on. Either way the slab is only
   // shown when the camera is inside this floor (see CameraRig culling).
   const ceilingColor = isRoof ? plan.materials?.roof || '#8C8378' : '#F1ECE3';
-  const openingsFor = (id) => plan.openings.filter((o) => o.wallId === id);
+  // Real wall openings, plus see-through gaps derived from door/window items that
+  // were dropped onto a wall (so an open door reveals the next room, not wall).
+  const itemOpenings = useMemo(() => itemWallOpenings(plan), [plan.furniture, plan.walls]);
+  const openingsFor = (id) => [
+    ...plan.openings.filter((o) => o.wallId === id),
+    ...itemOpenings.filter((o) => o.wallId === id),
+  ];
 
   // Footprint as an [x, z] polygon in building-centered world coords — lets the
   // CameraRig test whether the camera is standing inside this floor's room.

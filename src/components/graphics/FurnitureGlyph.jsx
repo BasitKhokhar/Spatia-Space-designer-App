@@ -1,11 +1,21 @@
+import { Image } from 'react-native';
 import Svg, { Rect, Ellipse, Circle, Line, Path } from 'react-native-svg';
 
+import { thumbFor } from './itemThumbs';
 import { useTheme } from '@/theme/useTheme';
 
-// Simple 2D glyphs standing in for catalog product photos, tinted by theme.
-// Each glyph draws inside its own viewBox; `size` sets the width.
+// 2D item art for catalog/browse tiles. If the kind has a registered PNG
+// thumbnail (itemThumbs.js) we show that real image; otherwise we fall back to
+// the theme-tinted vector glyph below. Each glyph draws inside its own viewBox;
+// `size` sets the width.
 export default function FurnitureGlyph({ kind = 'sofa', size = 80, color }) {
   const { colors, isDark } = useTheme();
+
+  // Real product thumbnail takes precedence over the vector glyph.
+  const thumb = thumbFor(kind);
+  if (thumb) {
+    return <Image source={thumb} style={{ width: size, height: size }} resizeMode="contain" />;
+  }
   const c = color || colors.accent;
   const wood = isDark ? '#6E5240' : '#8A6250';
   const steel = isDark ? '#9AA0A6' : '#AEB4BB';

@@ -1,5 +1,8 @@
+import { Suspense } from 'react';
 import { Shape, DoubleSide } from 'three';
 
+import { ModelItem } from './ModelItem';
+import { modelFor } from './modelRegistry';
 import { itemDims } from '@/domain/floorplan';
 import { shapePolygon } from '@/data/structure';
 
@@ -606,15 +609,29 @@ function FurnitureGeometry({ item, w, d, h }) {
 }
 
 // Place one item (furniture or structure) in the world and render its model.
+// If the item's `kind` has a real .glb registered, load and auto-fit it; while
+// it streams in (or if it's missing/errors) we render the procedural build via
+// the Suspense fallback, so the scene never blocks or goes blank.
 export function PlacedItem({ item, cx, cz, wallColor, floorColor }) {
   const { w, d, h } = itemDims(item);
   const rot = (-item.rotation * Math.PI) / 180;
+
+  const procedural = item.structure ? (
+    <StructureGeometry item={item} w={w} d={d} h={h} wallColor={wallColor} floorColor={floorColor} />
+  ) : (
+    <FurnitureGeometry item={item} w={w} d={d} h={h} />
+  );
+
+  const entry = modelFor(item.kind);
+
   return (
     <group position={[item.x - cx, 0, item.y - cz]} rotation={[0, rot, 0]}>
-      {item.structure ? (
-        <StructureGeometry item={item} w={w} d={d} h={h} wallColor={wallColor} floorColor={floorColor} />
+      {entry ? (
+        <Suspense fallback={procedural}>
+          <ModelItem entry={entry} w={w} d={d} h={h} />
+        </Suspense>
       ) : (
-        <FurnitureGeometry item={item} w={w} d={d} h={h} />
+        procedural
       )}
     </group>
   );

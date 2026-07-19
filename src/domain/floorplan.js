@@ -220,6 +220,50 @@ export function removeOpening(plan, id) {
   return { ...plan, openings: plan.openings.filter((o) => o.id !== id) };
 }
 
+// Doors/windows dropped as *structure items* (from the catalog) sit on top of a
+// wall but don't cut it — so in 3D the solid wall keeps filling the doorway and
+// you can't see through an open door. This derives a matching wall opening for
+// every such item that lines up on a wall (roughly parallel + close enough), so
+// the 3D wall builder can carve a real see-through gap the leaf swings into.
+// 2D uses the drawn leaf/pane, so this only feeds the 3D wall mesh.
+const ITEM_OPENING_KIND = { door: 'door', window: 'window' };
+
+export function itemWallOpenings(plan) {
+  const out = [];
+  for (const f of plan.furniture || []) {
+    if (!f.structure) continue;
+    const kind = ITEM_OPENING_KIND[f.shape?.type];
+    if (!kind) continue;
+    const { w, h } = itemDims(f);
+    const rad = ((f.rotation || 0) * Math.PI) / 180;
+    const dir = { x: Math.cos(rad), y: Math.sin(rad) }; // item's width axis
+    let best = null;
+    for (const wall of plan.walls) {
+      const L = wallLength(wall) || 1;
+      const wdir = { x: (wall.x2 - wall.x1) / L, y: (wall.y2 - wall.y1) / L };
+      // must be roughly aligned with the wall to be "in" it (|cos| ~ 1)
+      if (Math.abs(dir.x * wdir.x + dir.y * wdir.y) < 0.85) continue;
+      const { t, dist } = wallHit(wall, { x: f.x, y: f.y });
+      const maxDist = (wall.thickness || DEFAULT_WALL_THICKNESS) / 2 + 0.35;
+      if (dist > maxDist) continue;
+      if (!best || dist < best.dist) best = { wall, t };
+    }
+    if (!best) continue;
+    out.push({
+      id: `item-open-${f.id}`,
+      wallId: best.wall.id,
+      kind,
+      t: best.t,
+      width: w,
+      height: h,
+      // windows sit on a sill; doors run to the floor. The item's own frame
+      // overlaps these edges, so a small mismatch reads as trim, not a seam.
+      sill: kind === 'window' ? 0.85 : 0,
+    });
+  }
+  return out;
+}
+
 // ---- Materials -----------------------------------------------------------
 
 export function setMaterials(plan, patch) {
