@@ -40,16 +40,31 @@ export const useProjectsStore = create(
         }
       },
 
-      createProject: ({ name, roomType, width, length, variant = 0, seed = false, ideaId = null }) => {
+      createProject: ({ name, roomType, width, length, variant = 0, seed = false, ideaId = null, template = null }) => {
         const now = Date.now();
         const tempId = uid('proj');
-        // A starter idea builds a full furnished plan (perimeter + partitions +
-        // furniture); otherwise fall back to a blank rectangle, optionally
-        // seeded with a single-room starter layout.
+        // Sources, in priority: a premade design `template` (a full multi-floor
+        // plan from the backend/bundled catalog), a bundled starter `idea` (a
+        // furnished single plan), else a blank rectangle (optionally seeded with
+        // a single-room starter layout).
         const idea = ideaId ? ideaById(ideaId) : null;
         let plan;
         let rooms = 1;
-        if (idea) {
+        let floors = null;
+        let activeIdx = 0;
+        if (template) {
+          const w = template.plan || {};
+          // Rebuild floor records with fresh local ids so the project owns them.
+          floors = (w.floors || []).map((f) => makeFloor(f.name, f.plan));
+          if (!floors.length) floors = [makeFloor('Ground floor', createFloorPlan({ width: w.width, length: w.length }))];
+          activeIdx = Math.min(w.defaultFloor || 0, floors.length - 1);
+          plan = floors[activeIdx].plan;
+          rooms = template.rooms || 1;
+          name = name || template.name;
+          roomType = roomType || template.categoryKey;
+          width = w.width ?? plan.width;
+          length = w.length ?? plan.length;
+        } else if (idea) {
           plan = buildIdeaPlan(idea);
           rooms = idea.rooms || 1;
           name = name || idea.name;
@@ -62,7 +77,8 @@ export const useProjectsStore = create(
             plan = seedPlan(plan, roomType);
           }
         }
-        const groundFloor = makeFloor('Ground floor', plan);
+        if (!floors) floors = [makeFloor('Ground floor', plan)];
+        const activeFloor = floors[activeIdx] || floors[0];
         const project = {
           id: tempId,
           name: name || 'Untitled Room',
@@ -71,9 +87,9 @@ export const useProjectsStore = create(
           rooms,
           createdAt: now,
           updatedAt: now,
-          floors: [groundFloor],
-          activeFloorId: groundFloor.id,
-          plan, // mirror of the active floor's plan (kept in sync by the store)
+          floors,
+          activeFloorId: activeFloor.id,
+          plan: activeFloor.plan, // mirror of the active floor's plan (kept in sync by the store)
         };
         set((s) => ({ projects: [project, ...s.projects], activeProjectId: project.id }));
 
@@ -86,6 +102,11 @@ export const useProjectsStore = create(
                 projects: s.projects.map((p) => (p.id === tempId ? { ...p, ...saved } : p)),
                 activeProjectId: s.activeProjectId === tempId ? saved.id : s.activeProjectId,
               }));
+              // Multi-floor designs: create only stores the active plan, so push
+              // the full floors array once the real id is known.
+              if (typeof saved?.id === 'number' && project.floors.length > 1) {
+                projectsApi.update(saved.id, { plan: project.plan, floors: project.floors }).catch(() => {});
+              }
             })
             .catch(() => {
               // leave the optimistic local copy in place

@@ -8,4 +8,6 @@ export const creditsApi = {
   spend: (kind) => request('/credits/spend', { method: 'POST', body: { kind } }),
   // Spend credits to place a catalog item. Backend validates the item's cost.
   spendItem: (itemId) => request('/credits/spend-item', { method: 'POST', body: { itemId } }),
+  // Slugs of every item the current user has permanently unlocked.
+  unlocks: () => request('/credits/unlocks'),
 };

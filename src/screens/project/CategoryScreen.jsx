@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { View, Pressable, ScrollView } from 'react-native';
 
 import Screen from '@/components/ui/Screen';
@@ -5,13 +6,29 @@ import Text from '@/components/ui/Text';
 import HeaderBar from '@/components/ui/HeaderBar';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
-import { CATEGORIES } from '@/data/categories';
+import { CATEGORIES as BUNDLED_CATEGORIES } from '@/data/categories';
+import { useTemplatesStore } from '@/store/useTemplatesStore';
 import { ROUTES } from '@/navigation/routes';
 
-// Step 1 of "Start Blank": pick the kind of space to design. Each category
-// leads to a grid of furnished starter ideas (StarterIdeasScreen).
+// Step 1 of "Try Our Creative Designs": pick the kind of space to design. The
+// categories are backend-driven (dynamic + admin-editable), cached offline, and
+// fall back to the bundled set on first run. Each leads to a grid of premade
+// designs (StarterIdeasScreen).
 export default function CategoryScreen({ navigation }) {
   const { colors, radius } = useTheme();
+  const stored = useTemplatesStore((s) => s.categories);
+  const hydrate = useTemplatesStore((s) => s.hydrate);
+
+  // Refresh the design catalog (no-op if already cached & offline; refreshes
+  // from the backend when online).
+  useEffect(() => {
+    if (!stored.length) hydrate();
+  }, [stored.length, hydrate]);
+
+  // Normalize to a common shape; `id` here is the category key.
+  const categories = stored.length
+    ? stored.map((c) => ({ id: c.key, name: c.name, icon: c.icon, blurb: c.blurb }))
+    : BUNDLED_CATEGORIES;
 
   return (
     <Screen>
@@ -32,7 +49,7 @@ export default function CategoryScreen({ navigation }) {
               marginTop: 24,
             }}
           >
-            {CATEGORIES.map((cat) => (
+            {categories.map((cat) => (
               <Pressable
                 key={cat.id}
                 onPress={() => navigation.navigate(ROUTES.starterIdeas, { categoryId: cat.id })}

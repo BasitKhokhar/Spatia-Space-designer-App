@@ -36,12 +36,12 @@ function SocialButton({ icon, label, onPress }) {
   );
 }
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen({ navigation, route }) {
   const { colors, isDark } = useTheme();
   const login = useAuthStore((s) => s.login);
   const socialLogin = useAuthStore((s) => s.socialLogin);
-  const [email, setEmail] = useState('alex@studio.com');
-  const [password, setPassword] = useState('password');
+  const [email, setEmail] = useState(route?.params?.email ?? 'alex@studio.com');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   const onLogin = async () => {

@@ -11,6 +11,26 @@ import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system/legacy';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+// --- React Native compatibility shim ---------------------------------------
+// three's GLTFLoader sniffs the browser via `navigator.userAgent` (to decide
+// whether to use ImageBitmapLoader). React Native defines `navigator` but leaves
+// `userAgent` undefined, so `navigator.userAgent.match(...)` throws
+//   "Cannot read property 'match' of undefined"
+// and takes the whole 3D canvas down. Give it a harmless string once, up front,
+// so the loader safely takes the plain-TextureLoader path (RN has no
+// createImageBitmap anyway). Must run before any GLTFLoader.parse() call.
+if (typeof navigator !== 'undefined' && navigator.userAgent == null) {
+  try {
+    Object.defineProperty(navigator, 'userAgent', {
+      value: 'ReactNative',
+      configurable: true,
+      writable: true,
+    });
+  } catch (e) {
+    try { navigator.userAgent = 'ReactNative'; } catch (_) { /* read-only: ignore */ }
+  }
+}
+
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 const LOOKUP = (() => {
   const t = new Uint8Array(256);

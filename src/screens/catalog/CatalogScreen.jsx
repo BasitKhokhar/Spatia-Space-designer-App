@@ -6,11 +6,12 @@ import Text from '@/components/ui/Text';
 import Input from '@/components/ui/Input';
 import Chip from '@/components/ui/Chip';
 import FurnitureCard from '@/components/catalog/FurnitureCard';
-import { CATALOG, CATEGORIES, isPremiumItem } from '@/data/catalog';
+import { isPremiumItem } from '@/data/catalog';
 import { isShopRoom } from '@/data/roomTypes';
 import { useProjectsStore, useActiveProject } from '@/store/useProjectsStore';
 import { useUnlocksStore } from '@/store/useUnlocksStore';
 import { useCreditsStore } from '@/store/useCreditsStore';
+import { useCatalogStore, categoryNamesWithItems } from '@/store/useCatalogStore';
 import { ensurePlaceable } from '@/domain/unlock';
 import { addFurnitureItem } from '@/domain/floorplan';
 
@@ -19,16 +20,22 @@ export default function CatalogScreen({ navigation, route }) {
   const updatePlan = useProjectsStore((s) => s.updatePlan);
   const unlocked = useUnlocksStore((s) => s.unlocked);
   const subscriber = useCreditsStore((s) => s.tier !== 'free');
+  const allItems = useCatalogStore((s) => s.items);
+  const catObjects = useCatalogStore((s) => s.categories);
+  const CATEGORIES = useMemo(
+    () => ['All', ...categoryNamesWithItems(allItems, catObjects)],
+    [allItems, catObjects]
+  );
   const paramCategory = route?.params?.category;
   const [category, setCategory] = useState(
-    (paramCategory && CATEGORIES.includes(paramCategory) && paramCategory) ||
+    (paramCategory && paramCategory) ||
       (project && isShopRoom(project.roomType) ? 'Retail' : 'All')
   );
   const [query, setQuery] = useState('');
 
   const items = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return CATALOG.filter((c) => {
+    return allItems.filter((c) => {
       const matchCat = category === 'All' || c.category === category;
       const matchQuery =
         !q ||
@@ -37,7 +44,7 @@ export default function CatalogScreen({ navigation, route }) {
         (c.tags || []).some((t) => t.includes(q));
       return matchCat && matchQuery;
     });
-  }, [category, query]);
+  }, [category, query, allItems]);
 
   const addToProject = async (item) => {
     if (!project) return;

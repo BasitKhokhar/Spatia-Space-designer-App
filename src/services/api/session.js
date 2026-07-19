@@ -36,3 +36,17 @@ export function clearTokens() {
   cache = { accessToken: null, refreshToken: null };
   storage.delete(KEY);
 }
+
+// Session-expiry callback. The API client calls this when a request 401s and the
+// refresh token is also dead, so the auth store can drop the session and let the
+// navigator swap to the Login stack. Registered by useAuthStore to avoid a
+// circular import between client.js and the store.
+let onSessionExpired = null;
+
+export function setSessionExpiredHandler(fn) {
+  onSessionExpired = fn;
+}
+
+export function notifySessionExpired() {
+  if (onSessionExpired) onSessionExpired();
+}

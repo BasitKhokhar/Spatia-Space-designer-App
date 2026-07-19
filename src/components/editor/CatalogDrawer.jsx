@@ -9,12 +9,12 @@ import { useTheme } from '@/theme/useTheme';
 import { useUnlocksStore } from '@/store/useUnlocksStore';
 import { useCreditsStore } from '@/store/useCreditsStore';
 import {
-  ITEM_CATEGORIES,
-  CATALOG,
-  catalogByCategory,
-  categoryGlyph,
-  itemCost,
-} from '@/data/catalog';
+  useCatalogStore,
+  categoryNamesWithItems,
+  itemsInCategory,
+  glyphForCategory,
+} from '@/store/useCatalogStore';
+import { itemCost } from '@/data/catalog';
 
 // Right-side quick-add palette for the editor.
 //   • A labeled rail of categories — Structure & Doors/Windows lead, then furnishings.
@@ -34,9 +34,15 @@ export default function CatalogDrawer({
   const unlocked = useUnlocksStore((s) => s.unlocked);
   const balance = useCreditsStore((s) => s.balance);
   const subscriber = useCreditsStore((s) => s.tier !== 'free');
+  const allItems = useCatalogStore((s) => s.items);
+  const categories = useCatalogStore((s) => s.categories);
+  const itemCategories = useMemo(
+    () => categoryNamesWithItems(allItems, categories),
+    [allItems, categories]
+  );
 
   const panelW = Math.min(380, screenW * 0.92);
-  const [category, setCategory] = useState(initialCategory || ITEM_CATEGORIES[0]);
+  const [category, setCategory] = useState(initialCategory || itemCategories[0]);
   const [query, setQuery] = useState('');
 
   // Slide + fade animation. Mounted state keeps the panel in the tree during the
@@ -69,17 +75,18 @@ export default function CatalogDrawer({
   // Search across the whole catalog; otherwise show the active category.
   const items = useMemo(() => {
     if (searching) {
-      return CATALOG.filter(
-        (it) =>
-          it.name.toLowerCase().includes(q) ||
-          it.category.toLowerCase().includes(q) ||
-          (it.tags || []).some((t) => t.includes(q))
-      )
+      return allItems
+        .filter(
+          (it) =>
+            it.name.toLowerCase().includes(q) ||
+            it.category.toLowerCase().includes(q) ||
+            (it.tags || []).some((t) => t.includes(q))
+        )
         .sort((a, b) => itemCost(a) - itemCost(b))
         .slice(0, 60);
     }
-    return catalogByCategory(category);
-  }, [searching, q, category]);
+    return itemsInCategory(allItems, category);
+  }, [searching, q, category, allItems]);
 
   if (!mounted) return null;
 
@@ -198,9 +205,9 @@ export default function CatalogDrawer({
                 style={{ width: 82, borderRightWidth: 1, borderRightColor: colors.lineSoft }}
                 contentContainerStyle={{ paddingVertical: 8, alignItems: 'center', gap: 4 }}
               >
-                {ITEM_CATEGORIES.map((cat) => {
+                {itemCategories.map((cat) => {
                   const active = cat === category;
-                  const g = categoryGlyph(cat);
+                  const g = glyphForCategory(allItems, categories, cat);
                   return (
                     <Pressable
                       key={cat}

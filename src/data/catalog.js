@@ -136,6 +136,7 @@ const FURNITURE = [
   { id: 'wall-mirror', name: 'Wall Mirror', category: 'Decor', kind: 'mirror', dimensions: { w: 80, d: 5, h: 120 }, colors: METAL, price: 140 },
   { id: 'flat-tv', name: 'Flat-Screen TV', category: 'Decor', kind: 'tv', dimensions: { w: 140, d: 8, h: 82 }, colors: ['#1B1A17', '#3E4A5C'], price: 780, premium: true },
   { id: 'floor-plant', name: 'Floor Plant', category: 'Decor', kind: 'plant', dimensions: { w: 45, d: 45, h: 90 }, colors: GREEN, price: 70 },
+  { id: 'split-ac', name: 'Split AC Unit', category: 'Decor', kind: 'ac', dimensions: { w: 90, d: 22, h: 30 }, colors: ['#F4F1EA', '#D8D2C4', '#B8BCC2'], price: 460, tags: ['air', 'conditioner', 'hvac', 'wall'] },
   { id: 'oled-tv', name: 'OLED Cinema TV', category: 'Decor', kind: 'tv', dimensions: { w: 190, d: 8, h: 108 }, colors: ['#1B1A17', '#3E4A5C'], price: 2400, premium: true, tags: ['luxury', 'cinema', 'oled', 'screen'] },
   { id: 'statement-mirror', name: 'Statement Mirror', category: 'Decor', kind: 'mirror', dimensions: { w: 100, d: 6, h: 180 }, colors: LUXE, price: 640, premium: true, tags: ['luxury', 'gold', 'full-length'] },
 

@@ -1,10 +1,11 @@
-import { Suspense } from 'react';
+import { Component, Suspense } from 'react';
 import { Shape, DoubleSide } from 'three';
 
 import { ModelItem } from './ModelItem';
 import { modelFor } from './modelRegistry';
 import { itemDims } from '@/domain/floorplan';
 import { shapePolygon } from '@/data/structure';
+import { pc } from '@/data/itemEditor';
 
 // ---------------------------------------------------------------------------
 // Procedural 3D models for placed items. Every builder draws in the item's local
@@ -80,18 +81,20 @@ function Legs({ w, d, top, r = 0.03, color = WOOD_DK, inset = 0.12 }) {
 
 // ---- furniture builders ---------------------------------------------------
 
-function Sofa({ w, d, h, color }) {
+function Sofa({ w, d, h, color, parts }) {
   const seatH = h * 0.42;
+  const body = pc(parts, 'body', color);
+  const base = pc(parts, 'base', shade(color, 0.9));
   return (
     <>
-      <Box w={w} h={seatH} d={d * 0.96} y={seatH / 2} color={shade(color, 0.9)} rough={0.95} />
+      <Box w={w} h={seatH} d={d * 0.96} y={seatH / 2} color={base} rough={0.95} />
       {/* seat cushions */}
-      <Box w={w * 0.9} h={h * 0.14} d={d * 0.7} y={seatH + h * 0.06} z={d * 0.08} color={color} rough={0.95} />
+      <Box w={w * 0.9} h={h * 0.14} d={d * 0.7} y={seatH + h * 0.06} z={d * 0.08} color={body} rough={0.95} />
       {/* backrest */}
-      <Box w={w} h={h * 0.55} d={d * 0.2} y={h * 0.5} z={-d * 0.4} color={color} rough={0.95} />
+      <Box w={w} h={h * 0.55} d={d * 0.2} y={h * 0.5} z={-d * 0.4} color={body} rough={0.95} />
       {/* arms */}
-      <Box w={w * 0.12} h={h * 0.5} d={d * 0.96} x={w * 0.44} y={h * 0.3} color={color} rough={0.95} />
-      <Box w={w * 0.12} h={h * 0.5} d={d * 0.96} x={-w * 0.44} y={h * 0.3} color={color} rough={0.95} />
+      <Box w={w * 0.12} h={h * 0.5} d={d * 0.96} x={w * 0.44} y={h * 0.3} color={body} rough={0.95} />
+      <Box w={w * 0.12} h={h * 0.5} d={d * 0.96} x={-w * 0.44} y={h * 0.3} color={body} rough={0.95} />
     </>
   );
 }
@@ -152,19 +155,23 @@ function Desk({ w, d, h, color }) {
   );
 }
 
-function Bed({ w, d, h, color }) {
+function Bed({ w, d, h, color, parts }) {
   const baseH = h * 0.3;
+  const headboard = pc(parts, 'headboard', color);
+  const base = pc(parts, 'base', WOOD);
+  const mattress = pc(parts, 'bedding', shade(color, 1.05));
+  const pillow = pc(parts, 'bedding', '#F4F1EA');
   return (
     <>
       {/* base / frame */}
-      <Box w={w} h={baseH} d={d} y={baseH / 2} color={WOOD} />
+      <Box w={w} h={baseH} d={d} y={baseH / 2} color={base} />
       {/* mattress */}
-      <Box w={w * 0.96} h={h * 0.16} d={d * 0.9} y={baseH + h * 0.08} z={d * 0.03} color={shade(color, 1.05)} rough={0.95} />
+      <Box w={w * 0.96} h={h * 0.16} d={d * 0.9} y={baseH + h * 0.08} z={d * 0.03} color={mattress} rough={0.95} />
       {/* headboard */}
-      <Box w={w} h={h * 0.55} d={d * 0.06} y={h * 0.42} z={-d * 0.47} color={color} />
+      <Box w={w} h={h * 0.55} d={d * 0.06} y={h * 0.42} z={-d * 0.47} color={headboard} />
       {/* pillows */}
-      <Box w={w * 0.4} h={h * 0.1} d={d * 0.16} x={-w * 0.22} y={baseH + h * 0.2} z={-d * 0.32} color="#F4F1EA" rough={1} />
-      <Box w={w * 0.4} h={h * 0.1} d={d * 0.16} x={w * 0.22} y={baseH + h * 0.2} z={-d * 0.32} color="#F4F1EA" rough={1} />
+      <Box w={w * 0.4} h={h * 0.1} d={d * 0.16} x={-w * 0.22} y={baseH + h * 0.2} z={-d * 0.32} color={pillow} rough={1} />
+      <Box w={w * 0.4} h={h * 0.1} d={d * 0.16} x={w * 0.22} y={baseH + h * 0.2} z={-d * 0.32} color={pillow} rough={1} />
     </>
   );
 }
@@ -182,14 +189,16 @@ function ShelfUnit({ w, d, h, color }) {
   return <>{parts}</>;
 }
 
-function Cabinet({ w, d, h, color }) {
+function Cabinet({ w, d, h, color, parts }) {
+  const body = pc(parts, 'body', color);
+  const handle = pc(parts, 'handle', METAL_DK);
   return (
     <>
-      <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.7} />
+      <Box w={w} h={h} d={d} y={h / 2} color={body} rough={0.7} />
       {/* door split + handles */}
-      <Box w={0.01} h={h * 0.96} d={0.005} y={h / 2} z={d / 2} color={shade(color, 0.6)} />
-      <Cyl r={0.012} h={h * 0.12} x={-w * 0.08} y={h * 0.5} z={d / 2} color={METAL_DK} rot={[0, 0, 0]} />
-      <Cyl r={0.012} h={h * 0.12} x={w * 0.08} y={h * 0.5} z={d / 2} color={METAL_DK} />
+      <Box w={0.01} h={h * 0.96} d={0.005} y={h / 2} z={d / 2} color={shade(body, 0.6)} />
+      <Cyl r={0.012} h={h * 0.12} x={-w * 0.08} y={h * 0.5} z={d / 2} color={handle} rot={[0, 0, 0]} />
+      <Cyl r={0.012} h={h * 0.12} x={w * 0.08} y={h * 0.5} z={d / 2} color={handle} />
     </>
   );
 }
@@ -305,6 +314,78 @@ function Pendant({ w, d, h, color }) {
   );
 }
 
+// Ceiling fan — downrod, motor hub, four pitched blades and a light kit. Sits
+// near the ceiling via its MOUNT elevation (itemEditor.js).
+function CeilingFan({ w, d, h, color }) {
+  const r = Math.min(w, d) / 2;
+  const blade = color || WOOD_DK;
+  return (
+    <>
+      <Cyl r={r * 0.05} h={h * 0.5} y={h * 0.75} color={METAL_DK} metal={0.5} />
+      <Cyl r={r * 0.22} h={h * 0.38} y={h * 0.5} color={METAL} metal={0.4} />
+      {[0, 1, 2, 3].map((i) => {
+        const a = (i / 4) * Math.PI * 2;
+        return (
+          <Box
+            key={i}
+            w={r * 1.0}
+            h={h * 0.05}
+            d={r * 0.3}
+            x={Math.cos(a) * r * 0.6}
+            z={Math.sin(a) * r * 0.6}
+            y={h * 0.5}
+            ry={a}
+            color={blade}
+            rough={0.55}
+          />
+        );
+      })}
+      <Ball r={r * 0.14} y={h * 0.3} color="#F4ECCB" />
+    </>
+  );
+}
+
+// Pedestal (standing) fan — weighted base, pole, a circular guard and hub.
+function PedestalFan({ w, d, h, color }) {
+  const r = Math.min(w, d) / 2;
+  const head = h * 0.26;
+  return (
+    <>
+      <Cyl r={r * 0.95} h={h * 0.03} y={h * 0.015} color={METAL_DK} />
+      <Cyl r={r * 0.12} h={h * 0.72} y={h * 0.4} color={METAL} metal={0.4} />
+      <Cyl r={head} h={r * 0.5} y={h * 0.82} rot={[Math.PI / 2, 0, 0]} color={color} rough={0.5} seg={24} />
+      <Ball r={head * 0.28} y={h * 0.82} color={METAL} />
+    </>
+  );
+}
+
+// Wall exhaust fan — square housing with a round vent and blade cross.
+function ExhaustFan({ w, d, h, color }) {
+  const s = Math.min(w, h);
+  return (
+    <>
+      <Box w={w} h={h} d={d} color={color || '#E6E7E9'} rough={0.6} />
+      <Cyl r={s * 0.36} h={d * 0.35} z={d * 0.4} rot={[Math.PI / 2, 0, 0]} color="#C7C9CC" />
+      <Box w={s * 0.64} h={s * 0.08} d={d * 0.2} z={d * 0.55} color={METAL_DK} />
+      <Box w={s * 0.08} h={s * 0.64} d={d * 0.2} z={d * 0.55} color={METAL_DK} />
+    </>
+  );
+}
+
+// Wall sconce — backplate + an up/down-lit glowing shade.
+function WallSconce({ w, d, h, color }) {
+  const r = Math.min(w, h);
+  return (
+    <>
+      <Box w={w * 0.55} h={h * 0.5} d={d * 0.35} z={-d * 0.25} color={METAL_DK} />
+      <mesh position={[0, 0, d * 0.2]} castShadow>
+        <coneGeometry args={[r * 0.42, h * 0.5, 20, 1, true]} />
+        <meshStandardMaterial color={color} roughness={0.5} side={DoubleSide} emissive={color} emissiveIntensity={0.4} />
+      </mesh>
+    </>
+  );
+}
+
 function Plant({ w, d, h, color }) {
   const r = Math.min(w, d);
   return (
@@ -344,58 +425,417 @@ function Rug({ w, d, color }) {
   return <Box w={w} h={0.02} d={d} y={0.01} color={color} rough={1} />;
 }
 
-function Mirror({ w, d, h, color }) {
+function Mirror({ w, d, h, color, parts }) {
+  const frame = pc(parts, 'frame', shade(color, 0.7));
+  const glass = pc(parts, 'glass', GLASS);
   return (
     <>
-      <Box w={w} h={h} d={Math.max(d, 0.04)} y={h / 2} color={shade(color, 0.7)} />
-      <Box w={w * 0.86} h={h * 0.9} d={0.01} y={h / 2} z={Math.max(d, 0.04) / 2} color={GLASS} rough={0.05} metal={0.5} />
+      <Box w={w} h={h} d={Math.max(d, 0.04)} y={h / 2} color={frame} />
+      <Box w={w * 0.86} h={h * 0.9} d={0.01} y={h / 2} z={Math.max(d, 0.04) / 2} color={glass} rough={0.05} metal={0.5} />
     </>
   );
 }
 
-function Tv({ w, d, h, color }) {
+function Tv({ w, d, h, color, parts }) {
+  const bezel = pc(parts, 'frame', '#1B1A17');
+  const screen = pc(parts, 'screen', '#101418');
+  const stand = pc(parts, 'stand', METAL_DK);
   return (
     <>
-      <Box w={w} h={h * 0.82} d={Math.max(d, 0.05)} y={h * 0.55} color="#1B1A17" rough={0.4} />
-      <Box w={w * 0.94} h={h * 0.74} d={0.01} y={h * 0.55} z={Math.max(d, 0.05) / 2} color="#101418" rough={0.2} metal={0.3} />
-      <Box w={w * 0.16} h={h * 0.14} d={d * 0.6} y={h * 0.07} color={METAL_DK} />
+      <Box w={w} h={h * 0.82} d={Math.max(d, 0.05)} y={h * 0.55} color={bezel} rough={0.4} />
+      <Box w={w * 0.94} h={h * 0.74} d={0.01} y={h * 0.55} z={Math.max(d, 0.05) / 2} color={screen} rough={0.2} metal={0.3} />
+      <Box w={w * 0.16} h={h * 0.14} d={d * 0.6} y={h * 0.07} color={stand} />
     </>
   );
 }
 
-function Car({ w, d, h, color }) {
-  const bodyH = h * 0.42;
-  const cabinH = h * 0.34;
-  const wheelR = h * 0.22;
-  const wx = w * 0.42;
-  const wz = d * 0.3;
+// Wall-mounted split AC unit: rounded body, vent flap, side control panel.
+function Ac({ w, d, h, color, parts }) {
+  const body = pc(parts, 'body', color);
+  const vent = pc(parts, 'vent', shade(color, 0.94));
+  const panel = pc(parts, 'panel', METAL);
+  const t = Math.max(d, 0.14);
   return (
     <>
-      {/* lower body */}
-      <mesh position={[0, wheelR + bodyH * 0.4, 0]} castShadow receiveShadow>
-        <boxGeometry args={[w * 0.94, bodyH, d * 0.98]} />
-        <meshStandardMaterial color={color} roughness={0.35} metalness={0.55} />
+      {/* main body */}
+      <Box w={w} h={h} d={t} y={h / 2} color={body} rough={0.5} />
+      {/* front face inset */}
+      <Box w={w * 0.96} h={h * 0.7} d={0.01} y={h * 0.55} z={t / 2} color={vent} rough={0.4} />
+      {/* bottom vent flap, angled down */}
+      <Box w={w * 0.9} h={h * 0.16} d={t * 0.5} y={h * 0.12} z={t * 0.34} color={vent} rough={0.4} />
+      {/* small status panel */}
+      <Box w={w * 0.14} h={h * 0.1} d={0.008} x={w * 0.36} y={h * 0.3} z={t / 2 + 0.004} color={panel} metal={0.4} />
+    </>
+  );
+}
+
+// Body-style profiles. All fractions are relative to the item's width (w),
+// length/depth (d = front↔back), and height (h). One parametric builder draws
+// every vehicle; the profile shapes the silhouette so a sedan, SUV, pickup,
+// supercar, convertible and limousine each read as themselves in 3D instead of
+// sharing one generic box. Fields:
+//   wheel     tyre radius as a fraction of h (ride height)
+//   body      lower body-mass height as a fraction of h
+//   cabinH    raised cabin/greenhouse height as a fraction of h
+//   cabinLen  cabin length as a fraction of d
+//   cabinZ    cabin centre offset along d (+ = toward the nose)
+//   bodyW     body width as a fraction of w
+//   cabinW    cabin width as a fraction of w
+//   roof      'glass' = closed greenhouse, 'open' = convertible (no roof)
+//   rails     roof rails (SUV)
+//   bed       open cargo bed behind the cabin (pickup)
+//   limo      break the long greenhouse with body-colour pillars
+const CAR_PROFILES = {
+  sedan:    { wheel: 0.20, body: 0.34, cabinH: 0.30, cabinLen: 0.44, cabinZ: -0.05, bodyW: 0.90, cabinW: 0.80, roof: 'glass' },
+  suv:      { wheel: 0.25, body: 0.42, cabinH: 0.44, cabinLen: 0.62, cabinZ: -0.04, bodyW: 0.94, cabinW: 0.88, roof: 'glass', rails: true },
+  hatch:    { wheel: 0.21, body: 0.34, cabinH: 0.40, cabinLen: 0.54, cabinZ: -0.09, bodyW: 0.90, cabinW: 0.82, roof: 'glass' },
+  pickup:   { wheel: 0.26, body: 0.42, cabinH: 0.40, cabinLen: 0.30, cabinZ:  0.22, bodyW: 0.94, cabinW: 0.86, roof: 'glass', bed: true },
+  coupe:    { wheel: 0.19, body: 0.32, cabinH: 0.26, cabinLen: 0.40, cabinZ: -0.06, bodyW: 0.94, cabinW: 0.80, roof: 'glass' },
+  supercar: { wheel: 0.18, body: 0.28, cabinH: 0.22, cabinLen: 0.32, cabinZ:  0.06, bodyW: 0.96, cabinW: 0.78, roof: 'glass' },
+  muscle:   { wheel: 0.21, body: 0.36, cabinH: 0.28, cabinLen: 0.42, cabinZ: -0.11, bodyW: 0.94, cabinW: 0.82, roof: 'glass' },
+  cabrio:   { wheel: 0.19, body: 0.34, cabinH: 0.18, cabinLen: 0.32, cabinZ: -0.08, bodyW: 0.92, cabinW: 0.80, roof: 'open' },
+  limo:     { wheel: 0.18, body: 0.32, cabinH: 0.30, cabinLen: 0.80, cabinZ: -0.02, bodyW: 0.90, cabinW: 0.82, roof: 'glass', limo: true },
+};
+
+// Map a catalog id (the only per-vehicle data carried onto a placed item) to a
+// body style. Unknown ids fall back to a sedan so any new car still renders.
+const CAR_STYLE = {
+  car: 'sedan',
+  suv: 'suv',
+  hatchback: 'hatch',
+  'vigo-dala': 'pickup',
+  'land-cruiser': 'suv',
+  'sports-car': 'coupe',
+  'gt-supercar': 'supercar',
+  'roadster-cabrio': 'cabrio',
+  'muscle-car': 'muscle',
+  'stretch-limo': 'limo',
+};
+
+function Car({ w, d, h, color, catalogId }) {
+  const p = CAR_PROFILES[CAR_STYLE[catalogId] || 'sedan'] || CAR_PROFILES.sedan;
+  const glass = '#1E252C';
+  const trim = shade(color, 0.7);
+
+  const wheelR = h * p.wheel;
+  const bodyH = h * p.body;
+  const cabinH = h * p.cabinH;
+  const sillY = wheelR + h * 0.04;    // body floor sits just above the tyres
+  const bodyY = sillY + bodyH / 2;
+  const cabinLen = d * p.cabinLen;
+  const cabinZ = d * p.cabinZ;
+  const cabinY = sillY + bodyH + cabinH / 2 - h * 0.02;
+  const bw = w * p.bodyW;             // body width
+  const cw = w * p.cabinW;            // cabin width
+  const wx = w * 0.40;                // wheel offset from centre (X)
+  const wz = d * 0.33;                // wheel offset front/back (Z)
+
+  return (
+    <>
+      {/* main body mass — sits between the wheels along the full length */}
+      <mesh position={[0, bodyY, 0]} castShadow receiveShadow>
+        <boxGeometry args={[bw, bodyH, d * 0.98]} />
+        <meshStandardMaterial color={color} roughness={0.3} metalness={0.6} />
       </mesh>
-      {/* cabin */}
-      <mesh position={[0, wheelR + bodyH * 0.75 + cabinH * 0.5, -d * 0.02]} castShadow>
-        <boxGeometry args={[w * 0.82, cabinH, d * 0.5]} />
-        <meshStandardMaterial color={color} roughness={0.35} metalness={0.55} />
-      </mesh>
-      {/* greenhouse / glass */}
-      <mesh position={[0, wheelR + bodyH * 0.78 + cabinH * 0.5, -d * 0.02]}>
-        <boxGeometry args={[w * 0.84, cabinH * 0.7, d * 0.46]} />
-        <meshStandardMaterial color="#20252B" roughness={0.1} metalness={0.2} transparent opacity={0.85} />
-      </mesh>
-      {/* wheels */}
-      {[[wx, wz], [-wx, wz], [wx, -wz], [-wx, -wz]].map(([x, z], i) => (
-        <mesh key={i} position={[x, wheelR, z]} rotation={[0, 0, Math.PI / 2]} castShadow>
-          <cylinderGeometry args={[wheelR, wheelR, w * 0.16, 18]} />
-          <meshStandardMaterial color={TIRE} roughness={0.8} />
-        </mesh>
+      {/* lower rocker/skirt for a grounded look */}
+      <Box w={bw * 1.02} h={bodyH * 0.42} d={d * 0.9} y={sillY + bodyH * 0.2} color={trim} rough={0.5} metal={0.3} />
+
+      {/* closed roof: solid cabin + wrapping tinted greenhouse */}
+      {p.roof !== 'open' && (
+        <>
+          <mesh position={[0, cabinY, cabinZ]} castShadow>
+            <boxGeometry args={[cw, cabinH, cabinLen]} />
+            <meshStandardMaterial color={color} roughness={0.3} metalness={0.6} />
+          </mesh>
+          <mesh position={[0, cabinY + cabinH * 0.04, cabinZ]}>
+            <boxGeometry args={[cw * 1.01, cabinH * 0.66, cabinLen * 0.96]} />
+            <meshStandardMaterial color={glass} roughness={0.06} metalness={0.4} transparent opacity={0.9} />
+          </mesh>
+          {/* windshield (front) + rear window as sloped panes */}
+          <mesh position={[0, cabinY - cabinH * 0.08, cabinZ + cabinLen * 0.5]} rotation={[0.6, 0, 0]}>
+            <boxGeometry args={[cw * 0.92, cabinH * 0.9, 0.02]} />
+            <meshStandardMaterial color={glass} roughness={0.05} metalness={0.4} transparent opacity={0.85} />
+          </mesh>
+          <mesh position={[0, cabinY - cabinH * 0.08, cabinZ - cabinLen * 0.5]} rotation={[-0.5, 0, 0]}>
+            <boxGeometry args={[cw * 0.92, cabinH * 0.9, 0.02]} />
+            <meshStandardMaterial color={glass} roughness={0.05} metalness={0.4} transparent opacity={0.85} />
+          </mesh>
+        </>
+      )}
+
+      {/* open roof (convertible): recessed cockpit + a single raked windshield */}
+      {p.roof === 'open' && (
+        <>
+          <Box w={cw * 0.94} h={bodyH * 0.34} d={cabinLen} y={sillY + bodyH * 0.9} z={cabinZ} color={shade(color, 0.35)} rough={0.85} />
+          <mesh position={[0, sillY + bodyH + cabinH * 0.5, cabinZ + cabinLen * 0.45]} rotation={[0.7, 0, 0]}>
+            <boxGeometry args={[cw * 0.9, cabinH * 1.4, 0.02]} />
+            <meshStandardMaterial color={glass} roughness={0.05} metalness={0.4} transparent opacity={0.8} />
+          </mesh>
+        </>
+      )}
+
+      {/* limousine: body-colour pillars breaking the long greenhouse into bays */}
+      {p.limo && [0.3, 0.05, -0.2].map((f, i) => (
+        <Box key={`pil${i}`} w={cw * 1.03} h={cabinH * 0.66} d={w * 0.04} y={cabinY + cabinH * 0.04} z={cabinZ + cabinLen * f} color={color} rough={0.3} metal={0.6} />
       ))}
-      {/* headlights */}
-      <Box w={w * 0.16} h={h * 0.08} d={0.02} x={w * 0.28} y={wheelR + bodyH * 0.5} z={d * 0.49} color="#FFF4D6" rough={0.2} />
-      <Box w={w * 0.16} h={h * 0.08} d={0.02} x={-w * 0.28} y={wheelR + bodyH * 0.5} z={d * 0.49} color="#FFF4D6" rough={0.2} />
+
+      {/* SUV roof rails */}
+      {p.rails && [wx * 0.95, -wx * 0.95].map((x, i) => (
+        <Box key={`rail${i}`} w={w * 0.04} h={h * 0.03} d={cabinLen * 0.82} x={x} y={cabinY + cabinH * 0.52} z={cabinZ} color={METAL_DK} metal={0.5} />
+      ))}
+
+      {/* pickup cargo bed: open box (side + tail walls) behind the cabin */}
+      {p.bed && (() => {
+        const bedLen = d * 0.42;
+        const bedZ = -d * 0.24;
+        const wallT = w * 0.05;
+        const wallH = bodyH * 0.55;
+        const wallY = sillY + bodyH + wallH / 2;
+        return (
+          <>
+            <Box w={wallT} h={wallH} d={bedLen} x={bw / 2 - wallT / 2} y={wallY} z={bedZ} color={color} rough={0.4} metal={0.5} />
+            <Box w={wallT} h={wallH} d={bedLen} x={-bw / 2 + wallT / 2} y={wallY} z={bedZ} color={color} rough={0.4} metal={0.5} />
+            <Box w={bw} h={wallH} d={wallT} y={wallY} z={bedZ - bedLen / 2} color={color} rough={0.4} metal={0.5} />
+            <Box w={bw * 0.94} h={bodyH * 0.08} d={bedLen * 0.94} y={sillY + bodyH} z={bedZ} color={shade(color, 0.5)} rough={0.95} />
+          </>
+        );
+      })()}
+
+      {/* wheels — tyre + lighter rim */}
+      {[[wx, wz], [-wx, wz], [wx, -wz], [-wx, -wz]].map(([x, z], i) => (
+        <group key={i} position={[x, wheelR, z]} rotation={[0, 0, Math.PI / 2]}>
+          <mesh castShadow>
+            <cylinderGeometry args={[wheelR, wheelR, w * 0.14, 20]} />
+            <meshStandardMaterial color={TIRE} roughness={0.85} />
+          </mesh>
+          <mesh position={[0, w * 0.075, 0]}>
+            <cylinderGeometry args={[wheelR * 0.55, wheelR * 0.55, 0.02, 16]} />
+            <meshStandardMaterial color={METAL} roughness={0.35} metalness={0.7} />
+          </mesh>
+        </group>
+      ))}
+      {/* bumpers */}
+      <Box w={bw * 0.96} h={bodyH * 0.32} d={d * 0.04} y={sillY + bodyH * 0.25} z={d * 0.49} color={trim} rough={0.6} />
+      <Box w={bw * 0.96} h={bodyH * 0.32} d={d * 0.04} y={sillY + bodyH * 0.25} z={-d * 0.49} color={trim} rough={0.6} />
+      {/* headlights (front, +z) */}
+      <Box w={w * 0.16} h={h * 0.06} d={0.02} x={w * 0.28} y={bodyY} z={d * 0.49} color="#FFF4D6" rough={0.15} />
+      <Box w={w * 0.16} h={h * 0.06} d={0.02} x={-w * 0.28} y={bodyY} z={d * 0.49} color="#FFF4D6" rough={0.15} />
+      {/* taillights (rear, -z) */}
+      <Box w={w * 0.14} h={h * 0.05} d={0.02} x={w * 0.29} y={bodyY} z={-d * 0.49} color="#C0392B" rough={0.2} />
+      <Box w={w * 0.14} h={h * 0.05} d={0.02} x={-w * 0.29} y={bodyY} z={-d * 0.49} color="#C0392B" rough={0.2} />
+    </>
+  );
+}
+
+// ---- retail / parking / misc builders -------------------------------------
+
+// Freestanding sign, post/bollard, EV charger: pole + board on top.
+function Sign({ w, d, h, color }) {
+  const poleR = Math.max(0.02, Math.min(w, d) * 0.14);
+  return (
+    <>
+      <Cyl r={Math.min(w, d) * 0.34} h={h * 0.03} y={h * 0.015} color={METAL_DK} metal={0.5} />
+      <Cyl r={poleR} h={h * 0.72} y={h * 0.36} color={METAL} metal={0.5} />
+      <Box w={w} h={h * 0.3} d={Math.max(d * 0.4, 0.04)} y={h * 0.84} color={color} rough={0.55} />
+    </>
+  );
+}
+
+// Wooden shipping crate: solid box with darker corner posts + face rails.
+function Crate({ w, d, h, color }) {
+  const t = Math.max(0.03, Math.min(w, d, h) * 0.08);
+  const px = w / 2 - t / 2;
+  const pz = d / 2 - t / 2;
+  return (
+    <>
+      <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.9} />
+      <Box w={t} h={h} d={t} x={px} y={h / 2} z={pz} color={WOOD_DK} />
+      <Box w={t} h={h} d={t} x={-px} y={h / 2} z={pz} color={WOOD_DK} />
+      <Box w={t} h={h} d={t} x={px} y={h / 2} z={-pz} color={WOOD_DK} />
+      <Box w={t} h={h} d={t} x={-px} y={h / 2} z={-pz} color={WOOD_DK} />
+      <Box w={w} h={t} d={t * 0.5} y={h - t / 2} z={d / 2} color={WOOD_DK} />
+      <Box w={w} h={t} d={t * 0.5} y={t / 2} z={d / 2} color={WOOD_DK} />
+    </>
+  );
+}
+
+// Tapered round bin / cart corral tub.
+function Bin({ w, d, h, color }) {
+  const rTop = Math.min(w, d) * 0.5;
+  return (
+    <>
+      <Cyl rTop={rTop} rBot={rTop * 0.8} h={h} y={h / 2} color={color} rough={0.7} seg={24} />
+      <Cyl r={rTop * 1.04} h={h * 0.06} y={h * 0.98} color={shade(color, 0.85)} seg={24} />
+    </>
+  );
+}
+
+// Retail mannequin: base + pole + tapered torso + head.
+function Mannequin({ w, d, h, color }) {
+  const r = Math.min(w, d);
+  return (
+    <>
+      <Cyl r={r * 0.32} h={h * 0.02} y={h * 0.01} color={METAL_DK} />
+      <Cyl r={r * 0.05} h={h * 0.55} y={h * 0.3} color={METAL} metal={0.5} />
+      <Cyl rTop={r * 0.34} rBot={r * 0.16} h={h * 0.32} y={h * 0.68} color={color} rough={0.5} seg={20} />
+      <Cyl r={r * 0.06} h={h * 0.06} y={h * 0.87} color={color} />
+      <Ball r={r * 0.15} y={h * 0.95} color={color} />
+    </>
+  );
+}
+
+// Double-sided gondola shelving: base + center spine + shelves both faces.
+function Gondola({ w, d, h, color }) {
+  const t = Math.min(0.04, h * 0.03);
+  const shelves = Math.max(2, Math.round(h / 0.45));
+  const parts = [
+    <Box key="base" w={w} h={h * 0.12} d={d} y={h * 0.06} color={shade(color, 0.7)} />,
+    <Box key="spine" w={w} h={h} d={t} y={h / 2} color={shade(color, 0.82)} />,
+  ];
+  for (let i = 1; i <= shelves; i++) {
+    const y = (i / (shelves + 1)) * h;
+    parts.push(<Box key={`f${i}`} w={w} h={t} d={d * 0.42} y={y} z={d * 0.24} color={color} />);
+    parts.push(<Box key={`b${i}`} w={w} h={t} d={d * 0.42} y={y} z={-d * 0.24} color={color} />);
+  }
+  return <>{parts}</>;
+}
+
+// Straight clothing rack: two posts, a top bar, hanging garments.
+function Rack({ w, d, h, color }) {
+  const barY = h * 0.9;
+  const n = Math.max(3, Math.round(w / 0.18));
+  const cols = [color, shade(color, 0.8), shade(color, 1.12)];
+  const parts = [
+    <Cyl key="l" r={0.02} h={h} x={-w / 2 + 0.03} y={h / 2} color={METAL} metal={0.6} />,
+    <Cyl key="r" r={0.02} h={h} x={w / 2 - 0.03} y={h / 2} color={METAL} metal={0.6} />,
+    <Cyl key="bar" r={0.02} h={w} y={barY} color={METAL} metal={0.6} rot={[0, 0, Math.PI / 2]} />,
+  ];
+  for (let i = 0; i < n; i++) {
+    const x = -w / 2 + (i + 0.5) * (w / n);
+    parts.push(<Box key={`g${i}`} w={(w / n) * 0.8} h={h * 0.5} d={d * 0.5} x={x} y={barY - h * 0.26} color={cols[i % 3]} rough={0.85} />);
+  }
+  return <>{parts}</>;
+}
+
+// Circular clothing rack: pole + ring + garments radiating around.
+function RoundRack({ w, d, h, color }) {
+  const R = Math.min(w, d) * 0.45;
+  const cols = [color, shade(color, 0.8), shade(color, 1.12)];
+  const parts = [
+    <Cyl key="pole" r={0.025} h={h} y={h / 2} color={METAL} metal={0.6} />,
+    <Cyl key="foot" r={R * 0.5} h={h * 0.02} y={h * 0.01} color={METAL_DK} />,
+    <mesh key="ring" position={[0, h * 0.9, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+      <torusGeometry args={[R, 0.02, 8, 28]} />
+      <meshStandardMaterial color={METAL} metalness={0.6} roughness={0.4} />
+    </mesh>,
+  ];
+  const n = 10;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    parts.push(
+      <Box key={`g${i}`} w={0.1} h={h * 0.42} d={0.14} x={Math.cos(a) * R} z={Math.sin(a) * R} y={h * 0.68} ry={a} color={cols[i % 3]} rough={0.85} />
+    );
+  }
+  return <>{parts}</>;
+}
+
+// Wall-mounted shelf: board on two brackets.
+function WallShelf({ w, d, h, color, parts }) {
+  const y = h * 0.8;
+  const board = pc(parts, 'board', color);
+  const bracket = pc(parts, 'bracket', shade(color, 0.7));
+  return (
+    <>
+      <Box w={w} h={Math.max(h * 0.08, 0.04)} d={d} y={y} color={board} rough={0.6} />
+      <Box w={0.03} h={y} d={d * 0.8} x={-w * 0.4} y={y / 2} color={bracket} />
+      <Box w={0.03} h={y} d={d * 0.8} x={w * 0.4} y={y / 2} color={bracket} />
+    </>
+  );
+}
+
+// Chest freezer: body + tinted glass sliding top.
+function Freezer({ w, d, h, color }) {
+  return (
+    <>
+      <Box w={w} h={h * 0.9} d={d} y={h * 0.45} color={color} rough={0.4} metal={0.3} />
+      <Box w={w * 0.98} h={h * 0.12} d={d * 0.98} y={h * 0.94} color={GLASS} rough={0.1} metal={0.2} transparent opacity={0.5} />
+    </>
+  );
+}
+
+// Fitting room cubicle: three walls + curtain rod & curtain on the open face.
+function FittingRoom({ w, d, h, color }) {
+  const t = 0.05;
+  const wall = shade(color, 0.9);
+  return (
+    <>
+      <Box w={w} h={h} d={t} y={h / 2} z={-d / 2 + t / 2} color={wall} />
+      <Box w={t} h={h} d={d} x={-w / 2 + t / 2} y={h / 2} color={wall} />
+      <Box w={t} h={h} d={d} x={w / 2 - t / 2} y={h / 2} color={wall} />
+      <Cyl r={0.02} h={w} y={h * 0.98} z={d / 2} rot={[0, 0, Math.PI / 2]} color={METAL} metal={0.6} />
+      <Box w={w * 0.9} h={h * 0.9} d={0.03} y={h * 0.48} z={d / 2 - 0.03} color={color} rough={0.9} />
+    </>
+  );
+}
+
+// Upright glass-door cooler: cabinet + glass door + interior shelves.
+function CoolerUpright({ w, d, h, color }) {
+  return (
+    <>
+      <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.4} metal={0.4} />
+      <Box w={w * 0.86} h={h * 0.82} d={0.02} y={h * 0.52} z={d / 2} color={GLASS} rough={0.08} metal={0.3} transparent opacity={0.55} />
+      <Box w={w * 0.8} h={0.02} d={d * 0.6} y={h * 0.32} color={METAL} />
+      <Box w={w * 0.8} h={0.02} d={d * 0.6} y={h * 0.56} color={METAL} />
+      <Box w={w * 0.8} h={0.02} d={d * 0.6} y={h * 0.8} color={METAL} />
+    </>
+  );
+}
+
+// Checkout counter: base + top + register terminal and screen.
+function Checkout({ w, d, h, color }) {
+  return (
+    <>
+      <Box w={w} h={h * 0.8} d={d} y={h * 0.4} color={color} rough={0.7} />
+      <Box w={w * 1.04} h={h * 0.08} d={d * 1.04} y={h * 0.83} color={shade(color, 1.1)} rough={0.4} />
+      <Box w={w * 0.28} h={h * 0.2} d={d * 0.2} x={w * 0.25} y={h * 0.94} color={METAL_DK} />
+      <Box w={w * 0.24} h={h * 0.15} d={0.02} x={w * 0.25} y={h * 0.96} z={d * 0.11} color={GLASS} rough={0.1} />
+    </>
+  );
+}
+
+// Shopping basket: tapered tub + arched handle.
+function Basket({ w, d, h, color }) {
+  const r = Math.min(w, d);
+  return (
+    <>
+      <Cyl rTop={r * 0.55} rBot={r * 0.44} h={h * 0.7} y={h * 0.35} color={color} rough={0.6} seg={4} rot={[0, Math.PI / 4, 0]} />
+      <mesh position={[0, h * 0.82, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <torusGeometry args={[r * 0.3, 0.015, 8, 20, Math.PI]} />
+        <meshStandardMaterial color={shade(color, 0.8)} roughness={0.6} />
+      </mesh>
+    </>
+  );
+}
+
+// Display table: table top on legs with a couple of products on top.
+function DisplayTable({ w, d, h, color }) {
+  return (
+    <>
+      <Box w={w} h={h * 0.08} d={d} y={h - h * 0.04} color={color} rough={0.6} />
+      <Legs w={w} d={d} top={h - h * 0.08} r={Math.min(w, d) * 0.04} color={shade(color, 0.7)} />
+      <Box w={w * 0.2} h={h * 0.18} d={d * 0.2} x={-w * 0.22} y={h + h * 0.09} color={shade(color, 1.2)} rough={0.7} />
+      <Box w={w * 0.16} h={h * 0.12} d={d * 0.16} x={w * 0.2} y={h + h * 0.06} color={shade(color, 0.8)} rough={0.7} />
+    </>
+  );
+}
+
+// Glass display case: solid base + glass top box + cap.
+function DisplayCase({ w, d, h, color }) {
+  return (
+    <>
+      <Box w={w} h={h * 0.4} d={d} y={h * 0.2} color={color} rough={0.7} />
+      <Box w={w * 0.96} h={h * 0.55} d={d * 0.96} y={h * 0.68} color={GLASS} rough={0.08} metal={0.2} transparent opacity={0.35} />
+      <Box w={w} h={h * 0.04} d={d} y={h * 0.98} color={shade(color, 0.8)} />
     </>
   );
 }
@@ -490,15 +930,17 @@ function Ramp({ w, d, h, color }) {
 }
 
 // A real door: frame (jambs + head) with a leaf swung ~30° open (or two panes).
-function Door({ w, d, h, shape, color }) {
+function Door({ w, d, h, shape, color, parts: colorParts }) {
   const jamb = Math.min(0.08, w * 0.08);
   const t = Math.max(d, 0.12);
+  const frame = pc(colorParts, 'frame', color);
+  const leafMat = pc(colorParts, 'leaf', shade(color, 0.85));
+  const handleMat = pc(colorParts, 'handle', METAL);
   const parts = [];
-  parts.push(<Box key="jl" w={jamb} h={h} d={t} x={-w / 2 + jamb / 2} y={h / 2} color={color} />);
-  parts.push(<Box key="jr" w={jamb} h={h} d={t} x={w / 2 - jamb / 2} y={h / 2} color={color} />);
-  parts.push(<Box key="hd" w={w} h={jamb} d={t} y={h - jamb / 2} color={color} />);
+  parts.push(<Box key="jl" w={jamb} h={h} d={t} x={-w / 2 + jamb / 2} y={h / 2} color={frame} />);
+  parts.push(<Box key="jr" w={jamb} h={h} d={t} x={w / 2 - jamb / 2} y={h / 2} color={frame} />);
+  parts.push(<Box key="hd" w={w} h={jamb} d={t} y={h - jamb / 2} color={frame} />);
   const clear = w - 2 * jamb;
-  const leafMat = shade(color, 0.85);
   if (shape?.slide) {
     parts.push(<Box key="p1" w={clear * 0.52} h={h - jamb} d={t * 0.3} x={-clear * 0.24} y={(h - jamb) / 2} z={-t * 0.15} color={GLASS} rough={0.1} transparent opacity={0.6} />);
     parts.push(<Box key="p2" w={clear * 0.52} h={h - jamb} d={t * 0.3} x={clear * 0.24} y={(h - jamb) / 2} z={t * 0.15} color={GLASS} rough={0.1} transparent opacity={0.6} />);
@@ -518,7 +960,7 @@ function Door({ w, d, h, shape, color }) {
     parts.push(
       <group key="l" position={[-w / 2 + jamb, 0, 0]} rotation={[0, -0.6, 0]}>
         <Box w={clear} h={h - jamb} d={0.04} x={clear / 2} y={(h - jamb) / 2} color={leafMat} />
-        <Cyl r={0.02} h={0.06} x={clear * 0.9} y={(h - jamb) * 0.5} z={0.04} rot={[Math.PI / 2, 0, 0]} color={METAL} metal={0.6} />
+        <Cyl r={0.02} h={0.06} x={clear * 0.9} y={(h - jamb) * 0.5} z={0.04} rot={[Math.PI / 2, 0, 0]} color={handleMat} metal={0.6} />
       </group>
     );
   }
@@ -526,19 +968,23 @@ function Door({ w, d, h, shape, color }) {
 }
 
 // A real window: frame + glass, raised on a sill.
-function Window({ w, d, h, shape, color }) {
-  const sill = 0.85;
+function Window({ w, d, h, shape, color, parts: colorParts, sill: sillProp }) {
+  // Sill height off the floor (item.elevation). Old windows without one keep the
+  // original 0.85 m. Matches the gap carved by itemWallOpenings in floorplan.js.
+  const sill = sillProp ?? 0.85;
   const t = Math.max(d, 0.12);
   const fr = Math.min(0.06, w * 0.08);
+  const frame = pc(colorParts, 'frame', color);
+  const glass = pc(colorParts, 'glass', GLASS);
   const parts = [];
   const yb = sill;
-  parts.push(<Box key="b" w={w} h={fr} d={t} y={yb} color={color} />);
-  parts.push(<Box key="t" w={w} h={fr} d={t} y={yb + h} color={color} />);
-  parts.push(<Box key="l" w={fr} h={h} d={t} x={-w / 2 + fr / 2} y={yb + h / 2} color={color} />);
-  parts.push(<Box key="r" w={fr} h={h} d={t} x={w / 2 - fr / 2} y={yb + h / 2} color={color} />);
-  parts.push(<Box key="g" w={w - fr} h={h - fr} d={t * 0.25} y={yb + h / 2} color={GLASS} rough={0.08} metal={0.2} transparent opacity={0.45} />);
+  parts.push(<Box key="b" w={w} h={fr} d={t} y={yb} color={frame} />);
+  parts.push(<Box key="t" w={w} h={fr} d={t} y={yb + h} color={frame} />);
+  parts.push(<Box key="l" w={fr} h={h} d={t} x={-w / 2 + fr / 2} y={yb + h / 2} color={frame} />);
+  parts.push(<Box key="r" w={fr} h={h} d={t} x={w / 2 - fr / 2} y={yb + h / 2} color={frame} />);
+  parts.push(<Box key="g" w={w - fr} h={h - fr} d={t * 0.25} y={yb + h / 2} color={glass} rough={0.08} metal={0.2} transparent opacity={0.45} />);
   if (shape?.slide || shape?.bay) {
-    parts.push(<Box key="m" w={fr * 0.6} h={h - fr} d={t} y={yb + h / 2} color={color} />);
+    parts.push(<Box key="m" w={fr * 0.6} h={h - fr} d={t} y={yb + h / 2} color={frame} />);
   }
   return <>{parts}</>;
 }
@@ -561,8 +1007,8 @@ function StructureGeometry({ item, w, d, h, wallColor, floorColor }) {
     : <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.85} />;
   if (type === 'stairs') return <Stairs w={w} d={d} shape={item.shape} color={color} />;
   if (type === 'ramp') return <Ramp w={w} d={d} h={h} color={color} />;
-  if (type === 'door') return <Door w={w} d={d} h={h} shape={item.shape} color={color} />;
-  if (type === 'window') return <Window w={w} d={d} h={h} shape={item.shape} color={color} />;
+  if (type === 'door') return <Door w={w} d={d} h={h} shape={item.shape} color={color} parts={item.parts} />;
+  if (type === 'window') return <Window w={w} d={d} h={h} shape={item.shape} color={color} parts={item.parts} sill={item.elevation} />;
   // arch / fallback
   return <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.85} />;
 }
@@ -593,19 +1039,66 @@ const BUILDERS = {
   toilet: Toilet,
   lamp: Lamp,
   pendant: Pendant,
+  ceilingFan: CeilingFan,
+  pedestalFan: PedestalFan,
+  exhaustFan: ExhaustFan,
+  sconce: WallSconce,
   plant: Plant,
   planter: Planter,
   rug: Rug,
   mirror: Mirror,
   tv: Tv,
+  ac: Ac,
   car: Car,
   tree: Tree,
   lawn: Rug,
+  // retail / parking / misc
+  sign: Sign,
+  crate: Crate,
+  bin: Bin,
+  mannequin: Mannequin,
+  gondola: Gondola,
+  rack: Rack,
+  roundRack: RoundRack,
+  wallShelf: WallShelf,
+  shelfUnit: ShelfUnit,
+  freezer: Freezer,
+  fittingRoom: FittingRoom,
+  coolerUpright: CoolerUpright,
+  checkout: Checkout,
+  basket: Basket,
+  displayTable: DisplayTable,
+  displayCase: DisplayCase,
 };
 
 function FurnitureGeometry({ item, w, d, h }) {
   const Builder = BUILDERS[item.kind] || GenericBox;
-  return <Builder w={w} d={d} h={h} color={item.color} />;
+  // `catalogId` lets one builder branch per product variant (e.g. the Car
+  // builder draws a limo vs SUV vs pickup); other builders ignore it.
+  return <Builder w={w} d={d} h={h} color={item.color} parts={item.parts} catalogId={item.catalogId} />;
+}
+
+// Falls back to the procedural build if the real .glb throws while loading or
+// parsing on-device (bad file, unsupported texture, decoder error). Suspense
+// covers the *loading* state; this class covers the *error* state — together
+// they guarantee a placed item can never crash the whole 3D canvas.
+class ModelBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { failed: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch() {
+    // Handled by rendering the procedural fallback; swallow so the scene lives.
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
 }
 
 // Place one item (furniture or structure) in the world and render its model.
@@ -624,12 +1117,20 @@ export function PlacedItem({ item, cx, cz, wallColor, floorColor }) {
 
   const entry = modelFor(item.kind);
 
+  // Windows place themselves vertically via their sill (drawn in the builder +
+  // carved into the wall), so they opt out of the generic elevation lift to
+  // avoid a double offset. Everything else lifts by its elevation.
+  const isWindow = item.structure && item.shape?.type === 'window';
+  const elevY = isWindow ? 0 : item.elevation ?? 0;
+
   return (
-    <group position={[item.x - cx, 0, item.y - cz]} rotation={[0, rot, 0]}>
+    <group position={[item.x - cx, elevY, item.y - cz]} rotation={[0, rot, 0]}>
       {entry ? (
-        <Suspense fallback={procedural}>
-          <ModelItem entry={entry} w={w} d={d} h={h} />
-        </Suspense>
+        <ModelBoundary fallback={procedural}>
+          <Suspense fallback={procedural}>
+            <ModelItem entry={entry} w={w} d={d} h={h} />
+          </Suspense>
+        </ModelBoundary>
       ) : (
         procedural
       )}

@@ -22,20 +22,21 @@ export const useCreditsStore = create(
       dailyAdCap: CREDITS.dailyAdCap,
       perAd: CREDITS.perAd,
       isUnlimited: false,
-      // Subscription entitlement: 'free' | 'plus' | 'pro'. Authoritative value
-      // comes from the backend (/credits or /billing/my-status); defaults to
-      // 'free' offline. 'pro' implies unlimited downloads (mirrors isUnlimited).
+      // Subscription entitlement: 'free' | 'basic' | 'premium'. Authoritative
+      // value comes from the backend (/credits or /billing/my-status); defaults
+      // to 'free' offline. 'premium' implies unlimited downloads (isUnlimited).
       tier: 'free',
 
       // Derived entitlement helpers (read the current tier).
-      // Plus & Pro both remove ads and unlock the whole premium catalog.
+      // Basic & Premium both remove ads and unlock the whole premium catalog.
       adsDisabled: () => get().tier !== 'free',
       premiumUnlocked: () => get().tier !== 'free',
-      // Only Pro (or the legacy isUnlimited flag) grants unlimited downloads.
-      unlimitedDownloads: () => get().tier === 'pro' || get().isUnlimited,
+      // Only Premium (or the legacy isUnlimited flag) grants unlimited downloads;
+      // Basic still spends credits per download from its granted balance.
+      unlimitedDownloads: () => get().tier === 'premium' || get().isUnlimited,
 
       // Dev/local helper to preview a tier without a real purchase.
-      setTier: (tier) => set({ tier, isUnlimited: tier === 'pro' }),
+      setTier: (tier) => set({ tier, isUnlimited: tier === 'premium' }),
 
       _rollDay() {
         const d = today();
@@ -55,7 +56,7 @@ export const useCreditsStore = create(
             dailyAdCap: s.dailyAdCap,
             perAd: s.perAd,
             isUnlimited: s.isUnlimited,
-            tier: s.tier || (s.isUnlimited ? 'pro' : 'free'),
+            tier: s.tier || (s.isUnlimited ? 'premium' : 'free'),
           });
         } catch {
           // keep cached values on network error
@@ -84,7 +85,7 @@ export const useCreditsStore = create(
               dailyAdCap: s.dailyAdCap,
               perAd: s.perAd,
               isUnlimited: s.isUnlimited,
-              tier: s.tier || (s.isUnlimited ? 'pro' : 'free'),
+              tier: s.tier || (s.isUnlimited ? 'premium' : 'free'),
             });
             return true;
           } catch {
@@ -110,7 +111,7 @@ export const useCreditsStore = create(
             set({
               balance: s.balance,
               isUnlimited: s.isUnlimited,
-              tier: s.tier || (s.isUnlimited ? 'pro' : 'free'),
+              tier: s.tier || (s.isUnlimited ? 'premium' : 'free'),
             });
             return true;
           } catch {
@@ -132,7 +133,7 @@ export const useCreditsStore = create(
             set({
               balance: s.balance,
               isUnlimited: s.isUnlimited,
-              tier: s.tier || (s.isUnlimited ? 'pro' : 'free'),
+              tier: s.tier || (s.isUnlimited ? 'premium' : 'free'),
             });
             return true;
           } catch {

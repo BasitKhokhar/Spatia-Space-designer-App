@@ -8,9 +8,13 @@ import { useSettingsStore } from '@/store/useSettingsStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useProjectsStore } from '@/store/useProjectsStore';
 import { useCreditsStore } from '@/store/useCreditsStore';
+import { useCatalogStore } from '@/store/useCatalogStore';
+import { useTemplatesStore } from '@/store/useTemplatesStore';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { linking } from './linking';
 import { ROUTES } from './routes';
+import { navigationRef } from './navigationRef';
+import UnlockItemSheet from '@/components/sheets/UnlockItemSheet';
 
 // Onboarding
 import SplashScreen from '@/screens/onboarding/SplashScreen';
@@ -48,16 +52,22 @@ export default function RootNavigator() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hydrateProjects = useProjectsStore((s) => s.hydrate);
   const refreshCredits = useCreditsStore((s) => s.refresh);
+  const hydrateCatalog = useCatalogStore((s) => s.hydrate);
+  const hydrateTemplates = useTemplatesStore((s) => s.hydrate);
   const isConnected = useNetworkStatus();
 
-  // Once signed in, pull the authoritative projects + credit state from the
-  // backend (no-ops when running local-first).
+  // Once signed in, download the authoritative resources so the app works
+  // offline afterwards: projects, credit/entitlement state, the live catalog
+  // (which also merges this user's permanent item unlocks), and the premade
+  // design catalog. All no-op / bundled-fallback local-first.
   useEffect(() => {
     if (isAuthenticated) {
       hydrateProjects();
       refreshCredits();
+      hydrateCatalog();
+      hydrateTemplates();
     }
-  }, [isAuthenticated, hydrateProjects, refreshCredits]);
+  }, [isAuthenticated, hydrateProjects, refreshCredits, hydrateCatalog, hydrateTemplates]);
 
   const navTheme = {
     ...(isDark ? DarkTheme : DefaultTheme),
@@ -73,7 +83,7 @@ export default function RootNavigator() {
 
   return (
     <View style={{ flex: 1 }}>
-      <NavigationContainer theme={navTheme} linking={linking}>
+      <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking}>
         <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
           {!onboardingComplete ? (
             <Stack.Group>
@@ -117,6 +127,9 @@ export default function RootNavigator() {
           )}
         </Stack.Navigator>
       </NavigationContainer>
+
+      {/* Global premium-unlock sheet (driven by useUnlockPrompt from anywhere). */}
+      <UnlockItemSheet />
 
       {!isConnected ? (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>

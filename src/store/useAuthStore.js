@@ -5,7 +5,7 @@ import { zustandMMKVStorage } from './storage';
 import { uid } from '@/utils/id';
 import { isRemote } from '@/services/api/client';
 import { authApi } from '@/services/api/authApi';
-import { setTokens, clearTokens } from '@/services/api/session';
+import { setTokens, clearTokens, setSessionExpiredHandler } from '@/services/api/session';
 
 // Auth store. When a backend URL is configured (isRemote), auth goes through the
 // real API and tokens are kept in session.js; otherwise it falls back to a
@@ -51,17 +51,22 @@ export const useAuthStore = create(
         return s.user;
       },
 
+      // Create the account only — deliberately does NOT establish a session.
+      // The user is sent to the Login screen afterwards and must sign in with
+      // their new credentials (SignupScreen handles that navigation).
       signup: async (name, email, password) => {
         if (isRemote()) {
-          const { user, accessToken, refreshToken } = await authApi.signup(name, email, password);
-          setTokens({ accessToken, refreshToken });
-          const mapped = toUser(user);
-          set({ user: mapped, isAuthenticated: true });
-          return mapped;
+          const { user } = await authApi.signup(name, email, password);
+          return user ? toUser(user) : null;
         }
-        const s = get()._localSession(name, email);
-        set(s);
-        return s.user;
+        // Local/demo mode: no real backend, so just report success without
+        // authenticating so the same "sign up → log in" flow applies.
+        return {
+          id: uid('user'),
+          name: name || 'Designer',
+          email,
+          initial: (name || 'D').trim().charAt(0).toUpperCase(),
+        };
       },
 
       // provider: 'google' | 'apple'. Remote Google requires a verified idToken
@@ -113,3 +118,11 @@ export const useAuthStore = create(
     }
   )
 );
+
+// When the API client detects a fully-expired session (access token expired and
+// the refresh token no longer works), drop the local session too. RootNavigator
+// watches isAuthenticated and swaps back to the Login stack automatically.
+setSessionExpiredHandler(() => {
+  clearTokens();
+  useAuthStore.setState({ user: null, isAuthenticated: false });
+});

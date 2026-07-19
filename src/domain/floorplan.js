@@ -1,5 +1,6 @@
 import { uid } from '@/utils/id';
 import { areaM2 } from './units';
+import { defaultElevation } from '@/data/itemEditor';
 
 // ---------------------------------------------------------------------------
 // The floor-plan model is the single source of truth shared by the 2D editor,
@@ -256,9 +257,10 @@ export function itemWallOpenings(plan) {
       t: best.t,
       width: w,
       height: h,
-      // windows sit on a sill; doors run to the floor. The item's own frame
-      // overlaps these edges, so a small mismatch reads as trim, not a seam.
-      sill: kind === 'window' ? 0.85 : 0,
+      // windows sit on a sill (adjustable via the item's `elevation`; older
+      // items without one default to 0.85 m); doors run to the floor. The item's
+      // own frame overlaps these edges, so a small mismatch reads as trim.
+      sill: kind === 'window' ? (f.elevation ?? 0.85) : 0,
     });
   }
   return out;
@@ -294,6 +296,11 @@ export function addFurnitureItem(plan, catalogItem, position) {
     sx: 1,
     sy: 1,
     color: catalogItem.colors?.[0] ?? '#BC5B3A',
+    // Per-part color overrides (empty = use the builder's defaults) and the
+    // height off the floor slab in meters (0 for floor items, > 0 for wall
+    // items like TV/AC). See src/data/itemEditor.js.
+    parts: {},
+    elevation: defaultElevation(catalogItem.kind),
     ...(catalogItem.structure ? { structure: true, shape: catalogItem.shape } : {}),
   };
   return { ...plan, furniture: [...plan.furniture, item] };

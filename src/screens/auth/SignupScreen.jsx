@@ -9,6 +9,7 @@ import HeaderBar from '@/components/ui/HeaderBar';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { useAuthStore } from '@/store/useAuthStore';
+import { ROUTES } from '@/navigation/routes';
 
 export default function SignupScreen({ navigation }) {
   const { colors, radius } = useTheme();
@@ -27,7 +28,10 @@ export default function SignupScreen({ navigation }) {
     setLoading(true);
     try {
       await signup(name, email, password);
-      // RootNavigator swaps to the tab stack once isAuthenticated flips.
+      // Account created but intentionally not signed in — send the user to Login
+      // so they authenticate with their new credentials (prefill their email).
+      Alert.alert('Account created', 'Please log in to continue.');
+      navigation.navigate(ROUTES.login, { email });
     } catch (e) {
       Alert.alert('Sign up failed', e?.message || 'Please try again.');
     } finally {

@@ -45,7 +45,11 @@ const model = (src, opts = {}) => ({
 // once the matching file exists in src/assets/models/.
 export const MODELS = {
   // --- vehicles ---
-  car: model(require('../assets/models/car.glb'), { rotY: 0 }),
+  // Real .glb rendering is disabled for now: the 3D view runs entirely on the
+  // fast, crash-proof procedural builders in models.jsx (proper shapes for every
+  // item, instant load, no external model parsing). The pipeline below still
+  // works — re-enable a line only after verifying that model loads on-device.
+  // car: model(require('../assets/models/car.glb'), { rotY: 0 }),
 
   // --- living / bedroom ---
   // sofa: model(require('../assets/models/sofa.glb')),

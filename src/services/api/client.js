@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '@/constants/config';
-import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './session';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens, notifySessionExpired } from './session';
 
 // Thin fetch wrapper around the Home Designer backend. When API_BASE_URL is
 // empty the app runs fully local-first and these helpers are unused; set the URL
@@ -69,7 +69,10 @@ export async function request(path, { method = 'GET', body, auth = true, _retry 
   if (res.status === 401 && auth && !_retry) {
     const refreshed = await tryRefresh();
     if (refreshed) return request(path, { method, body, auth, _retry: true });
+    // Access token expired AND the refresh token is dead — end the session so
+    // the navigator sends the user back to Login (instead of crashing the UX).
     clearTokens();
+    notifySessionExpired();
   }
 
   if (!res.ok) {

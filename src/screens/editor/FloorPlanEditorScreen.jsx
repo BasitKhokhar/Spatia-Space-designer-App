@@ -1049,8 +1049,13 @@ export default function FloorPlanEditorScreen({ navigation }) {
       <ItemPlacementSheet
         ref={sheetRef}
         item={selected}
+        wallHeight={plan?.wallHeight ?? 2.6}
         onChange={patchSelected}
         onDuplicate={duplicateSelected}
+        onDelete={() => {
+          deleteSelected();
+          sheetRef.current?.dismiss();
+        }}
         onDone={() => sheetRef.current?.dismiss()}
       />
       <RoomStyleSheet

@@ -364,6 +364,38 @@ export default function FurnitureGlyph({ kind = 'sofa', size = 80, color }) {
         <Ellipse cx="28" cy="40" rx="16" ry="4" fill={press} />
       </Svg>
     ),
+    ceilingFan: (
+      <Svg width={size} height={size * 0.7} viewBox="0 0 70 50">
+        <Path d="M35 25 L9 19 L11 31 Z" fill={c} />
+        <Path d="M35 25 L61 19 L59 31 Z" fill={c} />
+        <Path d="M35 25 L30 3 L42 5 Z" fill={c} opacity={0.9} />
+        <Path d="M35 25 L28 47 L40 45 Z" fill={c} opacity={0.9} />
+        <Circle cx="35" cy="25" r="6" fill={steelDk} />
+      </Svg>
+    ),
+    pedestalFan: (
+      <Svg width={size * 0.8} height={size} viewBox="0 0 60 60">
+        <Ellipse cx="30" cy="56" rx="16" ry="4" fill={steelDk} opacity={0.6} />
+        <Rect x="27" y="24" width="6" height="32" fill={steel} />
+        <Circle cx="30" cy="20" r="18" fill="none" stroke={steelDk} strokeWidth={2} />
+        <Path d="M30 20 L17 11 M30 20 L43 11 M30 20 L30 35" stroke={c} strokeWidth={3} strokeLinecap="round" />
+        <Circle cx="30" cy="20" r="5" fill={c} />
+      </Svg>
+    ),
+    exhaustFan: (
+      <Svg width={size} height={size} viewBox="0 0 60 60">
+        <Rect x="8" y="8" width="44" height="44" rx="4" fill={c} opacity={0.35} />
+        <Rect x="8" y="8" width="44" height="44" rx="4" fill="none" stroke={steelDk} strokeWidth={2.5} />
+        <Circle cx="30" cy="30" r="15" fill="none" stroke={steelDk} strokeWidth={2} />
+        <Path d="M30 15 V45 M15 30 H45" stroke={steelDk} strokeWidth={2.5} />
+      </Svg>
+    ),
+    sconce: (
+      <Svg width={size * 0.7} height={size} viewBox="0 0 44 60">
+        <Rect x="16" y="18" width="12" height="22" rx="2" fill={steelDk} />
+        <Path d="M7 40 L37 40 L30 24 L14 24 Z" fill={c} />
+      </Svg>
+    ),
 
     // ---- Decor ----------------------------------------------------------
     plant: (
@@ -399,6 +431,15 @@ export default function FurnitureGlyph({ kind = 'sofa', size = 80, color }) {
         <Rect x="8" y="8" width="64" height="36" rx="3" fill="#1B1A17" />
         <Rect x="11" y="11" width="58" height="30" rx="2" fill={glass} opacity={0.6} />
         <Rect x="34" y="44" width="12" height="4" fill={steelDk} />
+      </Svg>
+    ),
+    ac: (
+      <Svg width={size} height={size * 0.42} viewBox="0 0 80 34">
+        <Rect x="6" y="6" width="68" height="22" rx="6" fill={c} />
+        <Rect x="6" y="6" width="68" height="22" rx="6" fill="none" stroke={steelDk} strokeWidth={1.6} />
+        <Line x1="12" y1="14" x2="68" y2="14" stroke={steel} strokeWidth={1.6} />
+        <Path d="M14 22 H66" stroke={steelDk} strokeWidth={2.4} strokeLinecap="round" />
+        <Rect x="56" y="17" width="8" height="3" rx="1.5" fill={steelDk} />
       </Svg>
     ),
 
