@@ -266,6 +266,11 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
     return s;
   }, [plan.footprint, cx, cz]);
 
+  // A blank plan (no footprint and no perimeter walls) renders no floor slab or
+  // ceiling — it reads as empty space. Placed structures bring their own floor +
+  // walls (see RoomShell), so a room only appears once the user adds one.
+  const hasShell = floorShape != null || perimeter.length > 0;
+
   // Register / unregister this floor's perimeter wall group for cutaway culling.
   const wallsRef = useRef();
   useEffect(() => {
@@ -276,32 +281,36 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
 
   return (
     <group position={[0, yOffset, 0]} visible={visible}>
-      {/* floor slab */}
-      <mesh position={[0, -0.02, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
-        {floorShape ? <shapeGeometry args={[floorShape]} /> : <planeGeometry args={[plan.width, plan.length]} />}
-        <meshStandardMaterial color={floorMat.c3d} roughness={floorMat.rough} side={DoubleSide} />
-      </mesh>
+      {/* floor slab — only when the plan has a shell (footprint / perimeter). */}
+      {hasShell ? (
+        <mesh position={[0, -0.02, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
+          {floorShape ? <shapeGeometry args={[floorShape]} /> : <planeGeometry args={[plan.width, plan.length]} />}
+          <meshStandardMaterial color={floorMat.c3d} roughness={floorMat.rough} side={DoubleSide} />
+        </mesh>
+      ) : null}
 
       {/* perimeter walls + ceiling/roof — the faces between the camera and the
           interior are auto-culled so you can always see inside (cutaway), yet a
-          look from below reveals the roof. */}
-      <group ref={wallsRef}>
-        {perimeter.map((w) => (
-          <WallMesh key={w.id} wall={w} cx={cx} cz={cz} height={h} color={wallColor} openings={openingsFor(w.id)} outward={outwardFor(w)} />
-        ))}
+          look from below reveals the roof. Skipped entirely for a blank plan. */}
+      {hasShell ? (
+        <group ref={wallsRef}>
+          {perimeter.map((w) => (
+            <WallMesh key={w.id} wall={w} cx={cx} cz={cz} height={h} color={wallColor} openings={openingsFor(w.id)} outward={outwardFor(w)} />
+          ))}
 
-        {/* ceiling / roof slab, capping the walls at their full height. Only
-            rendered when the camera is inside this floor (culled per-frame). */}
-        <mesh
-          position={[0, h, 0]}
-          rotation={[-Math.PI / 2, 0, 0]}
-          receiveShadow
-          userData={{ horizontal: true, worldBaseY: yOffset, worldTopY: yOffset + h, footprintXZ }}
-        >
-          {floorShape ? <shapeGeometry args={[floorShape]} /> : <planeGeometry args={[plan.width, plan.length]} />}
-          <meshStandardMaterial color={ceilingColor} roughness={isRoof ? 0.85 : 0.95} side={DoubleSide} />
-        </mesh>
-      </group>
+          {/* ceiling / roof slab, capping the walls at their full height. Only
+              rendered when the camera is inside this floor (culled per-frame). */}
+          <mesh
+            position={[0, h, 0]}
+            rotation={[-Math.PI / 2, 0, 0]}
+            receiveShadow
+            userData={{ horizontal: true, worldBaseY: yOffset, worldTopY: yOffset + h, footprintXZ }}
+          >
+            {floorShape ? <shapeGeometry args={[floorShape]} /> : <planeGeometry args={[plan.width, plan.length]} />}
+            <meshStandardMaterial color={ceilingColor} roughness={isRoof ? 0.85 : 0.95} side={DoubleSide} />
+          </mesh>
+        </group>
+      ) : null}
 
       {/* interior partitions (always visible) */}
       {interior.map((w) => (

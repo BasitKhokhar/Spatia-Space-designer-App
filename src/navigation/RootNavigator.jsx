@@ -11,6 +11,7 @@ import { useCreditsStore } from '@/store/useCreditsStore';
 import { useCatalogStore } from '@/store/useCatalogStore';
 import { useTemplatesStore } from '@/store/useTemplatesStore';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
+import { useAppBootstrap } from '@/hooks/useAppBootstrap';
 import { linking } from './linking';
 import { ROUTES } from './routes';
 import { navigationRef } from './navigationRef';
@@ -55,6 +56,9 @@ export default function RootNavigator() {
   const hydrateCatalog = useCatalogStore((s) => s.hydrate);
   const hydrateTemplates = useTemplatesStore((s) => s.hydrate);
   const isConnected = useNetworkStatus();
+  // Cold-start gate: keeps the branded splash up until stores rehydrate and the
+  // minimum brand window elapses. Shown on every launch, before any routing.
+  const appReady = useAppBootstrap();
 
   // Once signed in, download the authoritative resources so the app works
   // offline afterwards: projects, credit/entitlement state, the live catalog
@@ -85,9 +89,16 @@ export default function RootNavigator() {
     <View style={{ flex: 1 }}>
       <NavigationContainer ref={navigationRef} theme={navTheme} linking={linking}>
         <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-          {!onboardingComplete ? (
+          {!appReady ? (
+            // Boot gate — the only screen mounted until the app is ready. When
+            // appReady flips, the navigator swaps to the correct stack below.
+            <Stack.Screen
+              name={ROUTES.splash}
+              component={SplashScreen}
+              options={{ animation: 'fade' }}
+            />
+          ) : !onboardingComplete ? (
             <Stack.Group>
-              <Stack.Screen name={ROUTES.splash} component={SplashScreen} />
               <Stack.Screen name={ROUTES.onboarding} component={OnboardingScreen} />
               <Stack.Screen name={ROUTES.login} component={LoginScreen} />
               <Stack.Screen name={ROUTES.signup} component={SignupScreen} />

@@ -35,6 +35,19 @@ export function shapePolygon(kind) {
   return SHAPE_POLYGONS[kind] || null;
 }
 
+// Editable vertex list for a polygon structure, in LOCAL METERS centered on the
+// item's origin (0,0 = center). Derived from the kind's normalized outline scaled
+// to a w×d footprint. Placed items store this on `shape.points` so each corner can
+// be dragged independently; the renderer / 3D builder read it back verbatim.
+export function polygonLocalPoints(kind, w, d) {
+  const poly = shapePolygon(kind);
+  if (!poly) return null;
+  return poly.map(([nx, ny]) => ({
+    x: Math.round((nx - 0.5) * w * 1000) / 1000,
+    y: Math.round((ny - 0.5) * d * 1000) / 1000,
+  }));
+}
+
 export const STRUCTURE_ITEMS = [
   // ---- Room shapes (h = full wall height so 3D extrudes floor + 4 walls) --
   { id: 'space-square', name: 'Square Room', category: 'Structure', kind: 'roomSquare', dimensions: { w: 400, d: 400, h: 260 }, colors: SHELL, cost: 0, structure: true, shape: { type: 'polygon', kind: 'roomSquare' }, tags: ['room', 'space', 'rectangle', 'shell'] },

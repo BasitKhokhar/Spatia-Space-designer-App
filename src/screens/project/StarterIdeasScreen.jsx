@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { View, Pressable, ScrollView } from 'react-native';
+import { View, Pressable, ScrollView, Image } from 'react-native';
 
 import Screen from '@/components/ui/Screen';
 import Text from '@/components/ui/Text';
@@ -183,7 +183,16 @@ export default function StarterIdeasScreen({ navigation, route }) {
               return (
                 <Pressable key={t.id} onPress={() => openTemplate(t)} style={{ width: '47%' }}>
                   <View style={{ borderRadius: 16, overflow: 'hidden' }}>
-                    <TemplateThumbnail template={t} height={100} />
+                    {/* Realistic image when available, else the generated sketch */}
+                    {t.imageUrl ? (
+                      <Image
+                        source={{ uri: t.imageUrl }}
+                        style={{ height: 100, width: '100%' }}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <TemplateThumbnail template={t} height={100} />
+                    )}
                     {/* Story badge */}
                     {t.stories > 1 ? (
                       <View

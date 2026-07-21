@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Pressable, ScrollView, TextInput, Animated, useWindowDimensions } from 'react-native';
+import { View, Pressable, ScrollView, Animated, Easing, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 
 import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
@@ -8,26 +9,25 @@ import FurnitureGlyph from '@/components/graphics/FurnitureGlyph';
 import { useTheme } from '@/theme/useTheme';
 import { useUnlocksStore } from '@/store/useUnlocksStore';
 import { useCreditsStore } from '@/store/useCreditsStore';
-import {
-  useCatalogStore,
-  categoryNamesWithItems,
-  itemsInCategory,
-  glyphForCategory,
-} from '@/store/useCatalogStore';
+import { useCatalogStore, categoryNamesWithItems, itemsInCategory } from '@/store/useCatalogStore';
 import { itemCost } from '@/data/catalog';
 
-// Right-side quick-add palette for the editor.
-//   • A labeled rail of categories — Structure & Doors/Windows lead, then furnishings.
-//   • Each category shows its items as glyph tiles with a name + credit badge.
-//   • A search box filters across the whole catalog by name / tag.
-//   • Paid items route through the credit / earn-ad flow on tap; the header shows
-//     the live balance. "View details" opens the full Catalog screen.
+// Compact right-side quick-add palette for the editor.
+//   • A category dropdown at the top (names only) — Structure leads by default.
+//   • The chosen category's items list vertically as glyph + name + credit badge.
+//   • "All Tools" opens the full Catalog screen for search / details.
+// Build tools (select / outline / text / measure) now live in the editor footer,
+// so this drawer is purely about placing catalog items.
 export default function CatalogDrawer({
   visible,
   initialCategory,
   onClose,
   onAdd,
   onViewDetails,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
+  dragActive = false,
 }) {
   const { colors, radius, shadows, isDark } = useTheme();
   const { width: screenW } = useWindowDimensions();
@@ -41,56 +41,83 @@ export default function CatalogDrawer({
     [allItems, categories]
   );
 
-  const panelW = Math.min(380, screenW * 0.92);
-  const [category, setCategory] = useState(initialCategory || itemCategories[0]);
-  const [query, setQuery] = useState('');
+  // Comfortable ~33% sidebar, clamped so it stays usable on small phones / tablets.
+  const panelW = Math.max(180, Math.min(300, screenW * 0.33));
+  const [category, setCategory] = useState(initialCategory || 'Structure');
+  const [menuOpen, setMenuOpen] = useState(false);
 
   // Slide + fade animation. Mounted state keeps the panel in the tree during the
   // exit animation so it can slide out before unmounting.
   const [mounted, setMounted] = useState(visible);
   const slide = useRef(new Animated.Value(1)).current; // 0 = open, 1 = closed
   const fade = useRef(new Animated.Value(0)).current;
+  // While a drag is in flight the panel is slid away but must stay mounted, or the
+  // row's pan gesture is destroyed mid-drag and the drop never lands.
+  const dragActiveRef = useRef(dragActive);
+  dragActiveRef.current = dragActive;
 
   useEffect(() => {
     if (visible) {
       setMounted(true);
-      setQuery('');
+      setMenuOpen(false);
       if (initialCategory) setCategory(initialCategory);
+      // Premium open: the dim backdrop fades in first, then the panel glides in
+      // from the right with a soft decelerating curve, slightly staggered so the
+      // motion reads as layered rather than a flat push.
       Animated.parallel([
-        Animated.timing(slide, { toValue: 0, duration: 260, useNativeDriver: true }),
-        Animated.timing(fade, { toValue: 1, duration: 260, useNativeDriver: true }),
+        Animated.timing(fade, {
+          toValue: 1,
+          duration: 260,
+          easing: Easing.out(Easing.quad),
+          useNativeDriver: true,
+        }),
+        Animated.timing(slide, {
+          toValue: 0,
+          duration: 420,
+          delay: 60,
+          easing: Easing.bezier(0.16, 1, 0.3, 1), // expo-out: fast start, gentle settle
+          useNativeDriver: true,
+        }),
       ]).start();
     } else {
+      // Premium close: the panel eases out to the right first, and the backdrop
+      // lingers a touch before fading so the panel appears to slide out from
+      // under the dim rather than everything vanishing at once.
       Animated.parallel([
-        Animated.timing(slide, { toValue: 1, duration: 220, useNativeDriver: true }),
-        Animated.timing(fade, { toValue: 0, duration: 220, useNativeDriver: true }),
-      ]).start(({ finished }) => finished && setMounted(false));
+        Animated.timing(slide, {
+          toValue: 1,
+          duration: 340,
+          easing: Easing.bezier(0.7, 0, 0.84, 0), // expo-in: gentle start, quick exit
+          useNativeDriver: true,
+        }),
+        Animated.timing(fade, {
+          toValue: 0,
+          duration: 300,
+          delay: 80,
+          easing: Easing.in(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => finished && !dragActiveRef.current && setMounted(false));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  const q = query.trim().toLowerCase();
-  const searching = q.length > 0;
+  // Once a drag finishes, if the drawer was closed during it, complete the unmount
+  // that was deferred to keep the gesture alive.
+  useEffect(() => {
+    if (!dragActive && !visible) setMounted(false);
+  }, [dragActive, visible]);
 
-  // Search across the whole catalog; otherwise show the active category.
-  const items = useMemo(() => {
-    if (searching) {
-      return allItems
-        .filter(
-          (it) =>
-            it.name.toLowerCase().includes(q) ||
-            it.category.toLowerCase().includes(q) ||
-            (it.tags || []).some((t) => t.includes(q))
-        )
-        .sort((a, b) => itemCost(a) - itemCost(b))
-        .slice(0, 60);
-    }
-    return itemsInCategory(allItems, category);
-  }, [searching, q, category, allItems]);
+  // Fall back to the first available category if the current one has no items.
+  const activeCategory = itemCategories.includes(category) ? category : itemCategories[0];
+  const items = useMemo(() => itemsInCategory(allItems, activeCategory), [allItems, activeCategory]);
 
   if (!mounted) return null;
 
   const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [0, panelW] });
+  // Panel fades from fully visible to transparent over the last stretch of the
+  // slide, softening the entrance/exit edges without hiding it mid-travel.
+  const panelOpacity = slide.interpolate({ inputRange: [0, 0.7, 1], outputRange: [1, 1, 0] });
 
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="box-none">
@@ -111,6 +138,7 @@ export default function CatalogDrawer({
             backgroundColor: colors.surface,
             borderTopLeftRadius: radius.xxl,
             borderBottomLeftRadius: radius.xxl,
+            opacity: panelOpacity,
             transform: [{ translateX }],
           },
           shadows.e3,
@@ -123,199 +151,168 @@ export default function CatalogDrawer({
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'space-between',
-              paddingHorizontal: 18,
+              paddingHorizontal: 14,
               paddingTop: 14,
-              paddingBottom: 10,
+              paddingBottom: 8,
+              gap: 8,
             }}
           >
-            <View style={{ flex: 1 }}>
-              <Text variant="caption" color="ink3">
-                Add to plan
-              </Text>
-              <Text variant="title" numberOfLines={1}>
-                {searching ? 'Search' : category}
-              </Text>
-            </View>
+            <Text variant="title" numberOfLines={1} style={{ flex: 1 }}>
+              Add
+            </Text>
             <View
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
-                gap: 5,
-                paddingHorizontal: 10,
-                height: 30,
-                borderRadius: 15,
+                gap: 4,
+                paddingHorizontal: 8,
+                height: 28,
+                borderRadius: 14,
                 backgroundColor: colors.accentSoft,
-                marginRight: 10,
               }}
             >
-              <Icon name="star" size={13} color={colors.accent} strokeWidth={2} />
-              <Text style={{ fontSize: 13, fontFamily: 'Manrope_700Bold', color: colors.accent }}>
+              <Icon name="star" size={12} color={colors.accent} strokeWidth={2} />
+              <Text style={{ fontSize: 12, fontFamily: 'Manrope_700Bold', color: colors.accent }}>
                 {subscriber ? '∞' : balance}
               </Text>
             </View>
             <Pressable
               onPress={onClose}
               style={{
-                width: 34,
-                height: 34,
-                borderRadius: 17,
+                width: 32,
+                height: 32,
+                borderRadius: 16,
                 backgroundColor: colors.surface2,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
-              <Icon name="close" size={16} color={colors.ink2} strokeWidth={2.2} />
+              <Icon name="close" size={15} color={colors.ink2} strokeWidth={2.2} />
             </Pressable>
           </View>
 
-          {/* Search */}
-          <View
-            style={{
-              marginHorizontal: 14,
-              marginBottom: 8,
-              height: 40,
-              borderRadius: radius.lg,
-              backgroundColor: colors.surface2,
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingHorizontal: 12,
-              gap: 8,
-            }}
-          >
-            <Icon name="search" size={16} color={colors.ink3} strokeWidth={2} />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder="Search all items…"
-              placeholderTextColor={colors.ink3}
-              style={{ flex: 1, color: colors.ink, fontFamily: 'Manrope_500Medium', fontSize: 14, padding: 0 }}
-            />
-            {searching ? (
-              <Pressable onPress={() => setQuery('')} hitSlop={8}>
-                <Icon name="close" size={15} color={colors.ink3} strokeWidth={2.2} />
-              </Pressable>
-            ) : null}
-          </View>
-
-          <View style={{ flex: 1, flexDirection: 'row' }}>
-            {/* Category rail — glyph + label (hidden while searching) */}
-            {!searching ? (
-              <ScrollView
-                showsVerticalScrollIndicator={false}
-                style={{ width: 82, borderRightWidth: 1, borderRightColor: colors.lineSoft }}
-                contentContainerStyle={{ paddingVertical: 8, alignItems: 'center', gap: 4 }}
-              >
-                {itemCategories.map((cat) => {
-                  const active = cat === category;
-                  const g = glyphForCategory(allItems, categories, cat);
-                  return (
-                    <Pressable
-                      key={cat}
-                      onPress={() => setCategory(cat)}
-                      style={{
-                        width: 74,
-                        paddingVertical: 7,
-                        borderRadius: radius.lg,
-                        backgroundColor: active ? colors.accentSoft : 'transparent',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: 2,
-                        borderWidth: active ? 1 : 0,
-                        borderColor: colors.accent,
-                      }}
-                    >
-                      <FurnitureGlyph kind={g.kind} size={30} color={active ? colors.accent : g.color} />
-                      <Text
-                        numberOfLines={2}
-                        style={{
-                          fontSize: 9.5,
-                          lineHeight: 11,
-                          textAlign: 'center',
-                          fontFamily: active ? 'Manrope_700Bold' : 'Manrope_500Medium',
-                          color: active ? colors.accent : colors.ink3,
-                        }}
-                      >
-                        {cat}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            ) : null}
-
-            {/* Items grid — glyph tiles with name + credit badge */}
-            <ScrollView
-              style={{ flex: 1 }}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ padding: 12, paddingBottom: 24 }}
+          {/* Category dropdown — names only; Structure leads by default */}
+          <View style={{ paddingHorizontal: 12, zIndex: 20 }}>
+            <Pressable
+              onPress={() => setMenuOpen((o) => !o)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                height: 42,
+                paddingHorizontal: 12,
+                borderRadius: radius.lg,
+                borderWidth: 1.5,
+                borderColor: menuOpen ? colors.accent : colors.lineSoft,
+                backgroundColor: colors.surface2,
+                gap: 6,
+              }}
             >
-              {items.length === 0 ? (
-                <Text variant="caption" color="ink3" style={{ padding: 16, textAlign: 'center' }}>
-                  No items match “{query}”.
-                </Text>
-              ) : (
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                  {items.map((item) => {
-                    const cost = itemCost(item);
-                    const owned = subscriber || !!unlocked[item.id];
-                    const paid = cost > 0 && !owned;
+              <Text variant="titleSm" numberOfLines={1} style={{ flex: 1 }}>
+                {activeCategory}
+              </Text>
+              <Icon
+                name={menuOpen ? 'chevron-up' : 'chevron-down'}
+                size={16}
+                color={colors.ink2}
+                strokeWidth={2.2}
+              />
+            </Pressable>
+
+            {/* Dropdown list overlay */}
+            {menuOpen ? (
+              <View
+                style={[
+                  {
+                    position: 'absolute',
+                    top: 46,
+                    left: 12,
+                    right: 12,
+                    maxHeight: 320,
+                    borderRadius: radius.lg,
+                    borderWidth: 1,
+                    borderColor: colors.line,
+                    backgroundColor: colors.surface,
+                    overflow: 'hidden',
+                    zIndex: 30,
+                  },
+                  shadows.e3,
+                ]}
+              >
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {itemCategories.map((cat) => {
+                    const active = cat === activeCategory;
                     return (
                       <Pressable
-                        key={item.id}
-                        onPress={() => onAdd(item)}
+                        key={cat}
+                        onPress={() => {
+                          setCategory(cat);
+                          setMenuOpen(false);
+                        }}
                         style={{
-                          width: 96,
-                          borderRadius: radius.lg,
-                          backgroundColor: isDark ? '#211914' : '#F5EBE4',
-                          padding: 8,
-                          alignItems: 'center',
-                          gap: 4,
-                          overflow: 'hidden',
+                          height: 42,
+                          justifyContent: 'center',
+                          paddingHorizontal: 14,
+                          backgroundColor: active ? colors.accentSoft : 'transparent',
                         }}
                       >
-                        <View style={{ height: 52, justifyContent: 'center' }}>
-                          <FurnitureGlyph kind={item.kind} size={48} color={item.colors?.[0]} />
-                        </View>
                         <Text
                           numberOfLines={1}
-                          style={{ fontSize: 10.5, fontFamily: 'Manrope_600SemiBold', color: colors.ink2, maxWidth: 80 }}
-                        >
-                          {item.name}
-                        </Text>
-                        {/* credit badge */}
-                        <View
                           style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            gap: 3,
-                            paddingHorizontal: 7,
-                            height: 18,
-                            borderRadius: 9,
-                            backgroundColor: paid ? colors.credit : isDark ? '#2C3A2E' : '#E7F0E7',
+                            fontSize: 14,
+                            fontFamily: active ? 'Manrope_700Bold' : 'Manrope_500Medium',
+                            color: active ? colors.accent : colors.ink2,
                           }}
                         >
-                          {paid ? (
-                            <>
-                              <Icon name="star" size={9} color="#fff" strokeWidth={2.4} />
-                              <Text style={{ fontSize: 10, fontFamily: 'Manrope_700Bold', color: '#fff' }}>{cost}</Text>
-                            </>
-                          ) : (
-                            <Text style={{ fontSize: 9.5, fontFamily: 'Manrope_700Bold', color: colors.success }}>FREE</Text>
-                          )}
-                        </View>
+                          {cat}
+                        </Text>
                       </Pressable>
                     );
                   })}
-                </View>
-              )}
-            </ScrollView>
+                </ScrollView>
+              </View>
+            ) : null}
           </View>
 
-          {/* View details → full catalog */}
+          {/* Item list — glyph + name + credit badge, vertical scroll */}
+          <ScrollView
+            style={{ flex: 1 }}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ padding: 12, paddingBottom: 24, gap: 8 }}
+          >
+            {items.length === 0 ? (
+              <Text variant="caption" color="ink3" style={{ padding: 16, textAlign: 'center' }}>
+                No items in this category yet.
+              </Text>
+            ) : (
+              items.map((item) => {
+                const cost = itemCost(item);
+                const owned = subscriber || !!unlocked[item.id];
+                const paid = cost > 0 && !owned;
+                return (
+                  <DrawerItemRow
+                    key={item.id}
+                    item={item}
+                    paid={paid}
+                    cost={cost}
+                    colors={colors}
+                    radius={radius}
+                    isDark={isDark}
+                    onAdd={onAdd}
+                    onDragStart={onDragStart}
+                    onDragMove={onDragMove}
+                    onDragEnd={onDragEnd}
+                  />
+                );
+              })
+            )}
+          </ScrollView>
+
+          {/* All Tools → full catalog */}
           <Pressable
-            onPress={() => onViewDetails?.(searching ? undefined : category)}
+            onPress={() => onViewDetails?.(activeCategory)}
             style={{
-              margin: 14,
+              margin: 12,
               height: 48,
               borderRadius: radius.lg,
               backgroundColor: colors.ink,
@@ -326,13 +323,81 @@ export default function CatalogDrawer({
             }}
           >
             <Icon name="grid" size={16} color={colors.bg} strokeWidth={2} />
-            <Text style={{ color: colors.bg, fontFamily: 'Manrope_700Bold', fontSize: 15 }}>
-              Browse full catalog
-            </Text>
+            <Text style={{ color: colors.bg, fontFamily: 'Manrope_700Bold', fontSize: 15 }}>All Tools</Text>
           </Pressable>
         </SafeAreaView>
       </Animated.View>
     </View>
+  );
+}
+
+// A single catalog row. Tapping it drops the item at the plan center (fast repeat
+// placement); dragging it out of the sidebar hands the item to the editor, which
+// closes the drawer and lets the user drop it exactly where they release.
+function DrawerItemRow({ item, paid, cost, colors, radius, isDark, onAdd, onDragStart, onDragMove, onDragEnd }) {
+  const [dragging, setDragging] = useState(false);
+
+  const pan = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .activateAfterLongPress(140)
+        .onStart((e) => {
+          setDragging(true);
+          onDragStart?.(item, e.absoluteX, e.absoluteY);
+        })
+        .onUpdate((e) => onDragMove?.(e.absoluteX, e.absoluteY))
+        .onEnd((e) => onDragEnd?.(e.absoluteX, e.absoluteY))
+        .onFinalize(() => setDragging(false)),
+    [item] // eslint-disable-line react-hooks/exhaustive-deps
+  );
+
+  return (
+    <GestureDetector gesture={pan}>
+      <Pressable
+        onPress={() => onAdd(item)}
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 10,
+          padding: 8,
+          borderRadius: radius.lg,
+          backgroundColor: isDark ? '#211914' : '#F5EBE4',
+          opacity: dragging ? 0.4 : 1,
+        }}
+      >
+        <View style={{ width: 38, height: 38, alignItems: 'center', justifyContent: 'center' }}>
+          <FurnitureGlyph kind={item.kind} size={34} color={item.colors?.[0]} />
+        </View>
+        <Text
+          numberOfLines={1}
+          style={{ flex: 1, fontSize: 13, fontFamily: 'Manrope_600SemiBold', color: colors.ink2 }}
+        >
+          {item.name}
+        </Text>
+        {/* credit badge */}
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 3,
+            paddingHorizontal: 7,
+            height: 18,
+            borderRadius: 9,
+            backgroundColor: paid ? colors.credit : isDark ? '#2C3A2E' : '#E7F0E7',
+          }}
+        >
+          {paid ? (
+            <>
+              <Icon name="star" size={9} color="#fff" strokeWidth={2.4} />
+              <Text style={{ fontSize: 10, fontFamily: 'Manrope_700Bold', color: '#fff' }}>{cost}</Text>
+            </>
+          ) : (
+            <Text style={{ fontSize: 9.5, fontFamily: 'Manrope_700Bold', color: colors.success }}>FREE</Text>
+          )}
+        </View>
+      </Pressable>
+    </GestureDetector>
   );
 }
 

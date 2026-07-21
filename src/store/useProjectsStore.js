@@ -72,8 +72,12 @@ export const useProjectsStore = create(
           width = plan.width;
           length = plan.length;
         } else {
-          plan = createFloorPlan({ width, length });
-          if (seed && hasStarterLayout(roomType)) {
+          // A starter layout keeps its room perimeter; a plain new project opens
+          // as a fully blank canvas (no auto-added square) — the user draws every
+          // wall, room and structure themselves.
+          const starter = seed && hasStarterLayout(roomType);
+          plan = createFloorPlan({ width, length, perimeter: starter });
+          if (starter) {
             plan = seedPlan(plan, roomType);
           }
         }

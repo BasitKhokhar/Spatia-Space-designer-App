@@ -15,21 +15,18 @@ export default function Chip({ label, active = false, onPress, style }) {
           borderWidth: active ? 0 : 1,
           borderColor: colors.line,
           paddingHorizontal: 16,
-          paddingVertical: 9,
+          minHeight: 38,
           borderRadius: radius.pill,
+          alignItems: 'center',
           justifyContent: 'center',
         },
         style,
       ]}
     >
-      {/* numberOfLines + roomy lineHeight and no font padding keep the label on
-          one line and stop Android from clipping the custom font vertically. */}
-      <Text
-        variant="label"
-        color={active ? 'bg' : 'ink2'}
-        numberOfLines={1}
-        style={{ lineHeight: 20, includeFontPadding: false, textAlignVertical: 'center' }}
-      >
+      {/* Let the pill center a naturally-padded single line. Forcing
+          includeFontPadding:false + a tight lineHeight was clipping the custom
+          font on Android badly enough that the label looked blank. */}
+      <Text variant="label" color={active ? 'bg' : 'ink2'} numberOfLines={1} align="center">
         {label}
       </Text>
     </Pressable>

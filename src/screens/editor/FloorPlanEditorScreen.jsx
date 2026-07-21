@@ -17,11 +17,16 @@ import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
 import ItemPlacementSheet from '@/components/sheets/ItemPlacementSheet';
 import RoomStyleSheet from '@/components/sheets/RoomStyleSheet';
+import RoomSettingsSheet from '@/components/sheets/RoomSettingsSheet';
+import TextSettingsSheet from '@/components/sheets/TextSettingsSheet';
 import CatalogDrawer from '@/components/editor/CatalogDrawer';
+import { EDITOR_TOOLS } from '@/data/editorTools';
 import FloorSwitcher from '@/components/editor/FloorSwitcher';
 import FurnitureShape from '@/components/editor/FurnitureShape';
+import FurnitureGlyph from '@/components/graphics/FurnitureGlyph';
 import { useTheme } from '@/theme/useTheme';
 import { useProjectsStore, useActiveProject } from '@/store/useProjectsStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { ensurePlaceable } from '@/domain/unlock';
 import { isShopRoom } from '@/data/roomTypes';
 import { shapePolygon } from '@/data/structure';
@@ -41,19 +46,90 @@ import {
   resizePlan,
   snap,
   itemDims,
+  roomGroups,
+  roomById,
+  updateRoomRect,
+  updateWall,
+  removeRoom,
+  duplicateRoom,
+  mirrorRoom,
+  setRoomColor,
+  addText,
+  updateText,
+  removeText,
+  duplicateText,
+  isPolygonStructure,
+  structureLocalPoints,
+  structureLocalBounds,
 } from '@/domain/floorplan';
+import { formatLength } from '@/domain/units';
 import { floorMaterialById } from '@/data/materials';
 import { ROUTES } from '@/navigation/routes';
 
-const TOOLS = [
-  { id: 'select', icon: 'move', label: 'Select', hint: 'Drag to move. Tap an item to select it.' },
-  { id: 'outline', icon: 'polygon', label: 'Outline', hint: 'Tap to trace the outer shape. Tap the first dot to close it.' },
-  { id: 'wall', icon: 'wall', label: 'Wall', hint: 'Tap to drop wall points. Tap Finish to end.' },
-  { id: 'room', icon: 'square', label: 'Room', hint: 'Tap two corners to add a room / partition.' },
-  { id: 'door', icon: 'door', label: 'Door', hint: 'Tap a wall to cut a doorway.' },
-  { id: 'window', icon: 'window', label: 'Window', hint: 'Tap a wall to place a window.' },
-  { id: 'measure', icon: 'ruler', label: 'Measure', hint: 'Tap two points to measure the distance.' },
-];
+// World-space AABB of a placed item's footprint (polygon shells use their edited
+// vertices; everything else uses its rotated w×d box). Feeds the overall boundary.
+function itemWorldBounds(f) {
+  const rad = (f.rotation * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const mirror = f.mirrored ? -1 : 1;
+  const toWorld = (lx, ly) => ({ x: f.x + mirror * lx * cos - ly * sin, y: f.y + mirror * lx * sin + ly * cos });
+  let pts;
+  if (isPolygonStructure(f)) {
+    pts = structureLocalPoints(f) || [];
+  } else {
+    const { w, d } = itemDims(f);
+    pts = [
+      { x: -w / 2, y: -d / 2 },
+      { x: w / 2, y: -d / 2 },
+      { x: w / 2, y: d / 2 },
+      { x: -w / 2, y: d / 2 },
+    ];
+  }
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const p of pts) {
+    const wp = toWorld(p.x, p.y);
+    minX = Math.min(minX, wp.x);
+    minY = Math.min(minY, wp.y);
+    maxX = Math.max(maxX, wp.x);
+    maxY = Math.max(maxY, wp.y);
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+// The overall footprint boundary spanning every wall, structure and freeform
+// outline in the plan — the running "total width × length" the user sees grow
+// and shrink as pieces are added / removed / reshaped. Null when the plan is bare.
+function overallBounds(plan) {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let has = false;
+  const grow = (x, y) => {
+    has = true;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
+  };
+  for (const w of plan.walls || []) {
+    grow(w.x1, w.y1);
+    grow(w.x2, w.y2);
+  }
+  for (const f of plan.furniture || []) {
+    if (!f.structure) continue;
+    const b = itemWorldBounds(f);
+    grow(b.minX, b.minY);
+    grow(b.maxX, b.maxY);
+  }
+  for (const p of plan.footprint || []) grow(p.x, p.y);
+  if (!has) return null;
+  return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
+}
 
 export default function FloorPlanEditorScreen({ navigation }) {
   const { colors, radius, isDark, shadows } = useTheme();
@@ -67,9 +143,14 @@ export default function FloorPlanEditorScreen({ navigation }) {
   const setActiveFloor = useProjectsStore((s) => s.setActiveFloor);
   const moveFloor = useProjectsStore((s) => s.moveFloor);
 
+  const unit = useSettingsStore((s) => s.measurementUnit);
+
   const [plan, setPlan] = useState(() => project?.plan);
   const [tool, setTool] = useState('select');
   const [selectedId, setSelectedId] = useState(null);
+  const [selectedRoomId, setSelectedRoomId] = useState(null);
+  const [selectedTextId, setSelectedTextId] = useState(null);
+  const [itemTab, setItemTab] = useState('style');
   const [canvas, setCanvas] = useState({ w: 1, h: 1 });
   const [zoom, setZoom] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -79,15 +160,44 @@ export default function FloorPlanEditorScreen({ navigation }) {
   const [measure, setMeasure] = useState(null); // { a:{x,y}, b:{x,y}|null }
   const [outline, setOutline] = useState(null); // freeform perimeter draft: [{x,y}...]
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Drag-to-place: a catalog item being dragged out of the sidebar. `ghost` holds
+  // the item + live finger position (window coords) so we can render a preview
+  // that follows the touch and drop it onto the plan where the user releases.
+  const [dragGhost, setDragGhost] = useState(null); // { item, x, y } | null
+  const dragItemRef = useRef(null);
+  const canvasFrameRef = useRef({ x: 0, y: 0 }); // canvas position in window coords
+  const canvasRef = useRef(null);
 
   const sheetRef = useRef(null);
   const styleSheetRef = useRef(null);
+  const roomSheetRef = useRef(null);
+  const textSheetRef = useRef(null);
   const floorSheetRef = useRef(null);
   const history = useRef({ past: [], future: [] });
 
   // Live refs so gesture handlers (runOnJS) read current values.
   const refs = useRef({});
-  refs.current = { plan, zoom, offset, tool, selectedId, canvas, snapOn, pending, measure, outline };
+  refs.current = {
+    plan,
+    zoom,
+    offset,
+    tool,
+    selectedId,
+    selectedRoomId,
+    selectedTextId,
+    canvas,
+    snapOn,
+    pending,
+    measure,
+    outline,
+  };
+
+  // Clear any current selection (all three kinds).
+  const clearSelection = useCallback(() => {
+    setSelectedId(null);
+    setSelectedRoomId(null);
+    setSelectedTextId(null);
+  }, []);
 
   const floorMat = floorMaterialById(plan?.materials?.floor);
   const wallStrokeColor = isDark ? '#4A4034' : '#7C6A55';
@@ -120,7 +230,7 @@ export default function FloorPlanEditorScreen({ navigation }) {
     const p = project?.plan;
     if (!p) return;
     setPlan(p);
-    setSelectedId(null);
+    clearSelection();
     setPending(null);
     setMeasure(null);
     setOutline(null);
@@ -133,8 +243,8 @@ export default function FloorPlanEditorScreen({ navigation }) {
     setPending(null);
     setMeasure(null);
     setOutline(null);
-    if (tool !== 'select') setSelectedId(null);
-  }, [tool]);
+    if (tool !== 'select') clearSelection();
+  }, [tool]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- history ----
   const pushHistory = useCallback(() => {
@@ -197,6 +307,29 @@ export default function FloorPlanEditorScreen({ navigation }) {
     return null;
   };
 
+  // Approx bounding box of a text label (its content width isn't measured, so
+  // estimate from length × glyph size). Returns the hit element or null.
+  const hitTextEl = (pt) => {
+    const texts = refs.current.plan?.texts || [];
+    for (let i = texts.length - 1; i >= 0; i--) {
+      const t = texts[i];
+      const halfW = Math.max(0.3, (t.text?.length || 1) * 0.3 * (t.size || 0.5));
+      const halfH = Math.max(0.25, 0.6 * (t.size || 0.5));
+      if (Math.abs(pt.x - t.x) <= halfW && Math.abs(pt.y - t.y) <= halfH) return t;
+    }
+    return null;
+  };
+
+  // Room hit-test: a point inside a room group's bounding rectangle.
+  const hitRoom = (pt) => {
+    const rooms = roomGroups(refs.current.plan || { walls: [] });
+    for (let i = rooms.length - 1; i >= 0; i--) {
+      const r = rooms[i];
+      if (pt.x >= r.x && pt.x <= r.x + r.w && pt.y >= r.y && pt.y <= r.y + r.h) return r;
+    }
+    return null;
+  };
+
   // The 8 resize handles (4 corners + 4 edge midpoints, each carrying a local
   // direction) plus the rotate handle — all in plan meters, in the item's
   // rotated frame. Edge handles resize one axis; corners resize both.
@@ -220,9 +353,53 @@ export default function FloorPlanEditorScreen({ navigation }) {
         handle('b', 0, 1),
         handle('bl', -1, 1),
         handle('l', -1, 0),
+        handle('c', 0, 0), // center — whole-item move
       ],
       rotate: local(0, -(halfD + gap)),
       top: local(0, -halfD),
+    };
+  };
+
+  // ---- polygon structure corner editing ----
+  // Map a point in a structure's local frame (meters, centered on its origin) to
+  // world plan coords, honoring its rotation + horizontal mirror.
+  const structureWorld = (f, lx, ly) => {
+    const rad = (f.rotation * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const mx = (f.mirrored ? -1 : 1) * lx;
+    return { x: f.x + mx * cos - ly * sin, y: f.y + mx * sin + ly * cos };
+  };
+  // Inverse of structureWorld: world plan point → the structure's local frame.
+  const structureLocal = (f, pt) => {
+    const rad = (f.rotation * Math.PI) / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const dx = pt.x - f.x;
+    const dy = pt.y - f.y;
+    const lx = dx * cos + dy * sin;
+    const ly = -dx * sin + dy * cos;
+    return { x: (f.mirrored ? -1 : 1) * lx, y: ly };
+  };
+  // Editable handles for a polygon shell: one draggable arrow per corner, a dot at
+  // every edge midpoint (moves the whole wall), plus center-move and rotate.
+  const polygonHandles = (f) => {
+    const pts = structureLocalPoints(f) || [];
+    const b = structureLocalBounds(f) || { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    const gap = 30 / (ppm * refs.current.zoom);
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    const verts = pts.map((pt, i) => ({ id: `v${i}`, index: i, ...structureWorld(f, pt.x, pt.y) }));
+    const edges = pts.map((pt, i) => {
+      const n = pts[(i + 1) % pts.length];
+      return { id: `e${i}`, index: i, ...structureWorld(f, (pt.x + n.x) / 2, (pt.y + n.y) / 2) };
+    });
+    return {
+      verts,
+      edges,
+      center: structureWorld(f, cx, cy),
+      rotate: structureWorld(f, cx, b.minY - gap),
+      top: structureWorld(f, cx, b.minY),
     };
   };
 
@@ -238,7 +415,45 @@ export default function FloorPlanEditorScreen({ navigation }) {
           const r = refs.current;
           if (r.tool === 'select') {
             const sel = r.plan?.furniture.find((f) => f.id === r.selectedId);
-            if (sel) {
+            // Polygon shells edit per-corner: arrow handles drag one vertex; edge
+            // dots move a whole wall; center moves the item; a handle above rotates.
+            if (sel && isPolygonStructure(sel)) {
+              const ph = polygonHandles(sel);
+              const thr = 24 / (ppm * r.zoom);
+              const base = { x: sel.x, y: sel.y, rotation: sel.rotation, mirrored: sel.mirrored };
+              const startPoints = (structureLocalPoints(sel) || []).map((p) => ({ ...p }));
+              if (Math.hypot(pt.x - ph.rotate.x, pt.y - ph.rotate.y) <= thr) {
+                pushHistory();
+                drag.current = { mode: 'rotate', id: sel.id, center: { x: sel.x, y: sel.y } };
+                return;
+              }
+              // Corners take priority over edges when both are near the finger.
+              let vBest = null;
+              for (const v of ph.verts) {
+                const dist = Math.hypot(pt.x - v.x, pt.y - v.y);
+                if (dist <= thr && (!vBest || dist < vBest.dist)) vBest = { v, dist };
+              }
+              if (vBest) {
+                pushHistory();
+                drag.current = { mode: 'vertex', id: sel.id, index: vBest.v.index, base, startShape: sel.shape, startPoints };
+                return;
+              }
+              let eBest = null;
+              for (const eh of ph.edges) {
+                const dist = Math.hypot(pt.x - eh.x, pt.y - eh.y);
+                if (dist <= thr && (!eBest || dist < eBest.dist)) eBest = { eh, dist };
+              }
+              if (eBest) {
+                pushHistory();
+                drag.current = { mode: 'edgeMove', id: sel.id, index: eBest.eh.index, base, startShape: sel.shape, startPoints, startLocal: structureLocal(base, pt) };
+                return;
+              }
+              if (Math.hypot(pt.x - ph.center.x, pt.y - ph.center.y) <= thr) {
+                pushHistory();
+                drag.current = { mode: 'drag', id: sel.id, startItem: { x: sel.x, y: sel.y } };
+                return;
+              }
+            } else if (sel) {
               const h = handlePositions(sel);
               const thr = 26 / (ppm * r.zoom);
               if (Math.hypot(pt.x - h.rotate.x, pt.y - h.rotate.y) <= thr) {
@@ -254,6 +469,11 @@ export default function FloorPlanEditorScreen({ navigation }) {
               }
               if (best) {
                 pushHistory();
+                // Center handle drags the whole item; corner/edge handles resize.
+                if (best.hd.id === 'c') {
+                  drag.current = { mode: 'drag', id: sel.id, startItem: { x: sel.x, y: sel.y } };
+                  return;
+                }
                 const s = sel.scale ?? 1;
                 drag.current = {
                   mode: 'resize',
@@ -274,6 +494,26 @@ export default function FloorPlanEditorScreen({ navigation }) {
               pushHistory();
               drag.current = { mode: 'drag', id: hit.id, startItem: { x: hit.x, y: hit.y } };
               setSelectedId(hit.id);
+              setSelectedRoomId(null);
+              setSelectedTextId(null);
+              return;
+            }
+            const textHit = hitTextEl(pt);
+            if (textHit) {
+              pushHistory();
+              drag.current = { mode: 'dragText', id: textHit.id, startItem: { x: textHit.x, y: textHit.y } };
+              setSelectedTextId(textHit.id);
+              setSelectedId(null);
+              setSelectedRoomId(null);
+              return;
+            }
+            const roomHit = hitRoom(pt);
+            if (roomHit) {
+              pushHistory();
+              drag.current = { mode: 'dragRoom', id: roomHit.id, startRoom: { x: roomHit.x, y: roomHit.y, w: roomHit.w, h: roomHit.h } };
+              setSelectedRoomId(roomHit.id);
+              setSelectedId(null);
+              setSelectedTextId(null);
               return;
             }
           }
@@ -286,6 +526,14 @@ export default function FloorPlanEditorScreen({ navigation }) {
             const nx = snapPt({ x: d.startItem.x + e.translationX / (ppm * r.zoom), y: 0 }).x;
             const ny = snapPt({ x: 0, y: d.startItem.y + e.translationY / (ppm * r.zoom) }).y;
             setPlan((prev) => updateFurnitureItem(prev, d.id, { x: nx, y: ny }));
+          } else if (d.mode === 'dragText') {
+            const nx = snapPt({ x: d.startItem.x + e.translationX / (ppm * r.zoom), y: 0 }).x;
+            const ny = snapPt({ x: 0, y: d.startItem.y + e.translationY / (ppm * r.zoom) }).y;
+            setPlan((prev) => updateText(prev, d.id, { x: nx, y: ny }));
+          } else if (d.mode === 'dragRoom') {
+            const nx = snapPt({ x: d.startRoom.x + e.translationX / (ppm * r.zoom), y: 0 }).x;
+            const ny = snapPt({ x: 0, y: d.startRoom.y + e.translationY / (ppm * r.zoom) }).y;
+            setPlan((prev) => updateRoomRect(prev, d.id, { x: nx, y: ny, w: d.startRoom.w, h: d.startRoom.h }));
           } else if (d.mode === 'rotate') {
             const pt = screenToPlan(e.x, e.y);
             let deg = Math.round((Math.atan2(pt.y - d.center.y, pt.x - d.center.x) * 180) / Math.PI + 90);
@@ -326,6 +574,31 @@ export default function FloorPlanEditorScreen({ navigation }) {
             const sx = (2 * halfW) / d.baseW;
             const sy = (2 * halfD) / d.baseD;
             setPlan((prev) => updateFurnitureItem(prev, d.id, { x: nx, y: ny, sx, sy }));
+          } else if (d.mode === 'vertex') {
+            // Move one corner freely in the shell's local frame (grid-snapped when
+            // Snap is on). The footprint + measurements follow the bounding box.
+            const pt = screenToPlan(e.x, e.y);
+            let loc = structureLocal(d.base, pt);
+            if (r.snapOn) loc = { x: snap(loc.x), y: snap(loc.y) };
+            const rnd = (v) => Math.round(v * 1000) / 1000;
+            const points = d.startPoints.map((p, i) => (i === d.index ? { x: rnd(loc.x), y: rnd(loc.y) } : p));
+            setPlan((prev) => updateFurnitureItem(prev, d.id, { shape: { ...d.startShape, points } }));
+          } else if (d.mode === 'edgeMove') {
+            // Slide a whole wall by translating both endpoints of the edge equally.
+            const pt = screenToPlan(e.x, e.y);
+            const loc = structureLocal(d.base, pt);
+            let dx = loc.x - d.startLocal.x;
+            let dy = loc.y - d.startLocal.y;
+            if (r.snapOn) {
+              dx = snap(dx);
+              dy = snap(dy);
+            }
+            const j = (d.index + 1) % d.startPoints.length;
+            const rnd = (v) => Math.round(v * 1000) / 1000;
+            const points = d.startPoints.map((p, k) =>
+              k === d.index || k === j ? { x: rnd(p.x + dx), y: rnd(p.y + dy) } : p
+            );
+            setPlan((prev) => updateFurnitureItem(prev, d.id, { shape: { ...d.startShape, points } }));
           } else if (d.mode === 'pan') {
             setOffset({ x: d.startOffset.x + e.translationX, y: d.startOffset.y + e.translationY });
           }
@@ -346,7 +619,44 @@ export default function FloorPlanEditorScreen({ navigation }) {
           const pt = screenToPlan(e.x, e.y);
           if (r.tool === 'select') {
             const hit = hitTest(pt);
-            setSelectedId(hit ? hit.id : null);
+            if (hit) {
+              setSelectedId(hit.id);
+              setSelectedRoomId(null);
+              setSelectedTextId(null);
+              return;
+            }
+            const textHit = hitTextEl(pt);
+            if (textHit) {
+              setSelectedTextId(textHit.id);
+              setSelectedId(null);
+              setSelectedRoomId(null);
+              return;
+            }
+            const roomHit = hitRoom(pt);
+            if (roomHit) {
+              setSelectedRoomId(roomHit.id);
+              setSelectedId(null);
+              setSelectedTextId(null);
+              return;
+            }
+            clearSelection();
+            return;
+          }
+          if (r.tool === 'text') {
+            const p = snapPt(pt);
+            let newId = null;
+            applyCommit((pl) => {
+              const next = addText(pl, { x: p.x, y: p.y, text: 'Label' });
+              newId = next.texts[next.texts.length - 1].id;
+              return next;
+            });
+            setTool('select');
+            if (newId) {
+              setSelectedTextId(newId);
+              setSelectedId(null);
+              setSelectedRoomId(null);
+              setTimeout(() => textSheetRef.current?.present(), 60);
+            }
             return;
           }
           if (r.tool === 'door' || r.tool === 'window') {
@@ -413,8 +723,14 @@ export default function FloorPlanEditorScreen({ navigation }) {
   const gesture = Gesture.Simultaneous(pinch, Gesture.Race(pan, tap));
 
   const selected = plan?.furniture.find((f) => f.id === selectedId) || null;
+  const selectedRoom = selectedRoomId ? roomById(plan, selectedRoomId) : null;
+  const selectedText = plan?.texts?.find((t) => t.id === selectedTextId) || null;
 
-  const openSheet = () => sheetRef.current?.present();
+  // ---- furniture actions ----
+  const openSheet = (focusTab) => {
+    if (focusTab) setItemTab(focusTab);
+    sheetRef.current?.present();
+  };
   const patchSelected = (patch) => setPlan((prev) => updateFurnitureItem(prev, selectedId, patch));
   const deleteSelected = () => {
     applyCommit((p) => removeFurnitureItem(p, selectedId));
@@ -423,22 +739,75 @@ export default function FloorPlanEditorScreen({ navigation }) {
   const duplicateSelected = () => applyCommit((p) => duplicateFurnitureItem(p, selectedId));
   const rotateSelected90 = () =>
     applyCommit((p) => updateFurnitureItem(p, selectedId, { rotation: (selected.rotation + 90) % 360 }));
+  const mirrorSelected = () =>
+    applyCommit((p) => updateFurnitureItem(p, selectedId, { mirrored: !selected.mirrored }));
 
-  // Drop a catalog item into the middle of the plan. Premium items route through
-  // the rewarded-ad unlock first; the drawer stays open for rapid placement.
-  const addItem = async (item) => {
+  // ---- room actions ----
+  const resizeSelectedRoom = ({ w, h }) =>
+    setPlan((prev) => updateRoomRect(prev, selectedRoomId, { x: selectedRoom.x, y: selectedRoom.y, w, h }));
+  const setSelectedWallThickness = (wallId, thickness) =>
+    setPlan((prev) => updateWall(prev, wallId, { thickness }));
+  const setSelectedRoomColor = (hex) => applyCommit((p) => setRoomColor(p, selectedRoomId, hex));
+  const deleteSelectedRoom = () => {
+    applyCommit((p) => removeRoom(p, selectedRoomId));
+    setSelectedRoomId(null);
+  };
+  const duplicateSelectedRoom = () => applyCommit((p) => duplicateRoom(p, selectedRoomId));
+  const mirrorSelectedRoom = () => applyCommit((p) => mirrorRoom(p, selectedRoomId));
+
+  // ---- text actions ----
+  const patchSelectedText = (patch) => setPlan((prev) => updateText(prev, selectedTextId, patch));
+  const rotateSelectedText90 = () =>
+    applyCommit((p) => updateText(p, selectedTextId, { rotation: ((selectedText.rotation || 0) + 90) % 360 }));
+  const deleteSelectedText = () => {
+    applyCommit((p) => removeText(p, selectedTextId));
+    setSelectedTextId(null);
+  };
+  const duplicateSelectedText = () => applyCommit((p) => duplicateText(p, selectedTextId));
+
+  // Drop a catalog item onto the plan. Tapping a row places it at plan center;
+  // dragging a row places it exactly where the finger was released (`position`).
+  // Premium items route through the rewarded-ad unlock first. The freshly placed
+  // item is selected so its edit handles show immediately.
+  const addItem = async (item, position) => {
     const ok = await ensurePlaceable(item);
     if (!ok) return;
     let newId = null;
     applyCommit((p) => {
-      const next = addFurnitureItem(p, item, { x: p.width / 2, y: p.length / 2 });
+      const pos = position || { x: p.width / 2, y: p.length / 2 };
+      const next = addFurnitureItem(p, item, pos);
       newId = next.furniture[next.furniture.length - 1].id;
       return next;
     });
     if (newId) {
       setTool('select');
       setSelectedId(newId);
+      setSelectedRoomId(null);
+      setSelectedTextId(null);
     }
+  };
+
+  // ---- drag-to-place from the sidebar ----
+  // The drawer's rows own the pan gesture; these callbacks receive window-space
+  // finger coordinates. We close the drawer, follow the finger with a ghost, then
+  // convert the release point into plan meters (via the measured canvas frame).
+  const handleDragStart = (item, x, y) => {
+    dragItemRef.current = item;
+    setDragGhost({ item, x, y });
+    setDrawerOpen(false);
+    clearSelection();
+  };
+  const handleDragMove = (x, y) => {
+    setDragGhost((g) => (g ? { ...g, x, y } : { item: dragItemRef.current, x, y }));
+  };
+  const handleDragEnd = (x, y) => {
+    const item = dragItemRef.current;
+    setDragGhost(null);
+    dragItemRef.current = null;
+    if (!item) return;
+    const frame = canvasFrameRef.current;
+    const pt = screenToPlan(x - frame.x, y - frame.y);
+    addItem(item, snapPt(pt));
   };
 
   const drawerCategory = project && isShopRoom(project.roomType) ? 'Retail' : undefined;
@@ -485,14 +854,26 @@ export default function FloorPlanEditorScreen({ navigation }) {
     };
 
     if (shape.type === 'polygon') {
-      const poly = shapePolygon(shape.kind) || [[0, 0], [1, 0], [1, 1], [0, 1]];
+      // Editable vertices (local meters, centered) drive the outline so a dragged
+      // corner reshapes the room. Fall back to the kind's normalized outline.
+      const localPts = structureLocalPoints(f);
       const p = Skia.Path.Make();
-      poly.forEach(([nx, ny], i) => {
-        const x = (nx - 0.5) * wPx;
-        const y = (ny - 0.5) * dPx;
-        if (i === 0) p.moveTo(x, y);
-        else p.lineTo(x, y);
-      });
+      if (localPts && localPts.length >= 3) {
+        localPts.forEach((pt, i) => {
+          const x = pt.x * ppm;
+          const y = pt.y * ppm;
+          if (i === 0) p.moveTo(x, y);
+          else p.lineTo(x, y);
+        });
+      } else {
+        const poly = shapePolygon(shape.kind) || [[0, 0], [1, 0], [1, 1], [0, 1]];
+        poly.forEach(([nx, ny], i) => {
+          const x = (nx - 0.5) * wPx;
+          const y = (ny - 0.5) * dPx;
+          if (i === 0) p.moveTo(x, y);
+          else p.lineTo(x, y);
+        });
+      }
       p.close();
       els.push(<Path key="fill" path={p} color={fill} opacity={0.55} />);
       els.push(<Path key="wall" path={p} color={stroke} style="stroke" strokeWidth={strokeW} strokeJoin="round" />);
@@ -613,33 +994,94 @@ export default function FloorPlanEditorScreen({ navigation }) {
   const dimLabels = showDims
     ? plan.walls.map((w) => {
         const mid = planToScreen((w.x1 + w.x2) / 2, (w.y1 + w.y2) / 2);
-        return { id: w.id, ...mid, text: `${wallLength(w).toFixed(2)} m` };
+        return { id: w.id, ...mid, text: formatLength(wallLength(w), unit) };
       })
     : [];
   let measureLabel = null;
   if (measure?.a && measure?.b) {
     const dist = Math.hypot(measure.b.x - measure.a.x, measure.b.y - measure.a.y);
     const mid = planToScreen((measure.a.x + measure.b.x) / 2, (measure.a.y + measure.b.y) / 2);
-    measureLabel = { ...mid, text: `${dist.toFixed(2)} m` };
+    measureLabel = { ...mid, text: formatLength(dist, unit) };
+  }
+
+  // Room groups (selectable rectangles derived from grouped walls).
+  const rooms = roomGroups(plan);
+
+  // Overall footprint boundary — drawn as top/left dimension lines whose totals
+  // update live as structures are added, removed or reshaped.
+  const overall = showDims ? overallBounds(plan) : null;
+  let overallDims = null;
+  if (overall && overall.w > 0.05 && overall.h > 0.05) {
+    const OFF = 20; // px outside the boundary
+    const tl = planToScreen(overall.minX, overall.minY);
+    const tr = planToScreen(overall.maxX, overall.minY);
+    const bl = planToScreen(overall.minX, overall.maxY);
+    overallDims = {
+      topY: tl.sy - OFF,
+      leftX: tl.sx - OFF,
+      x1: tl.sx,
+      x2: tr.sx,
+      y1: tl.sy,
+      y2: bl.sy,
+      widthText: formatLength(overall.w, unit),
+      heightText: formatLength(overall.h, unit),
+    };
   }
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? '#161310' : '#F0EBE2' }} edges={['top']}>
       {/* Canvas */}
       <View
+        ref={canvasRef}
         style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
-        onLayout={(e) => setCanvas({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+        onLayout={(e) => {
+          setCanvas({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height });
+          // Cache the canvas position in window coords so sidebar drops (which give
+          // window-space finger coords) can be mapped into plan space.
+          canvasRef.current?.measureInWindow?.((wx, wy) => {
+            canvasFrameRef.current = { x: wx, y: wy };
+          });
+        }}
       >
         <GestureDetector gesture={gesture}>
           <Canvas style={{ flex: 1 }}>
             <Group transform={[{ translateX: offset.x }, { translateY: offset.y }, { scale: zoom }]}>
-              {/* floor — polygon for freeform footprints, otherwise a rectangle */}
+              {/* floor — only when the plan has a shell (footprint or perimeter
+                  walls). A blank plan draws no floor: the canvas is empty until
+                  the user adds a structure, which brings its own floor + walls. */}
               {floorPath ? (
                 <Path path={floorPath} color={floorMat.c2d} />
-              ) : (
+              ) : plan.walls.some((w) => w.perimeter) ? (
                 <Rect x={0} y={0} width={plan.width * ppm} height={plan.length * ppm} color={floorMat.c2d} />
-              )}
+              ) : null}
               {gridPath ? <Path path={gridPath} color={isDark ? '#2E2A24' : '#D8CFC0'} /> : null}
+
+              {/* room floor tints + selection highlight (grouped-wall rects) */}
+              {rooms.map((rm) => {
+                const tint = rm.walls.find((w) => w.color)?.color;
+                const isSel = rm.id === selectedRoomId;
+                if (!tint && !isSel) return null;
+                return (
+                  <Group key={`room-${rm.id}`}>
+                    {tint ? (
+                      <Rect x={rm.x * ppm} y={rm.y * ppm} width={rm.w * ppm} height={rm.h * ppm} color={tint} opacity={0.5} />
+                    ) : null}
+                    {isSel ? (
+                      <Rect
+                        x={rm.x * ppm}
+                        y={rm.y * ppm}
+                        width={rm.w * ppm}
+                        height={rm.h * ppm}
+                        color={colors.accent}
+                        style="stroke"
+                        strokeWidth={2.5}
+                      >
+                        <DashPathEffect intervals={[8, 6]} />
+                      </Rect>
+                    ) : null}
+                  </Group>
+                );
+              })}
 
               {/* walls */}
               {plan.walls.map((w) => {
@@ -733,10 +1175,11 @@ export default function FloorPlanEditorScreen({ navigation }) {
                       { translateX: f.x * ppm },
                       { translateY: f.y * ppm },
                       { rotate: (f.rotation * Math.PI) / 180 },
+                      { scaleX: f.mirrored ? -1 : 1 },
                     ]}
                   >
                     {f.structure ? structureEls(f, w, d) : <FurnitureShape f={f} w={w} d={d} />}
-                    {isSel ? (
+                    {isSel && !isPolygonStructure(f) ? (
                       <RoundedRect
                         x={-w / 2 - 4}
                         y={-d / 2 - 4}
@@ -757,7 +1200,80 @@ export default function FloorPlanEditorScreen({ navigation }) {
 
             {/* Screen-space overlays (constant size): handles, drafts, measure */}
             <Group>
-              {selected
+              {/* Overall boundary dimension lines (top = width, left = length) */}
+              {overallDims
+                ? (() => {
+                    const c = colors.ink3;
+                    const cap = 5;
+                    const top = Skia.Path.Make();
+                    top.moveTo(overallDims.x1, overallDims.topY);
+                    top.lineTo(overallDims.x2, overallDims.topY);
+                    top.moveTo(overallDims.x1, overallDims.topY - cap);
+                    top.lineTo(overallDims.x1, overallDims.topY + cap);
+                    top.moveTo(overallDims.x2, overallDims.topY - cap);
+                    top.lineTo(overallDims.x2, overallDims.topY + cap);
+                    const left = Skia.Path.Make();
+                    left.moveTo(overallDims.leftX, overallDims.y1);
+                    left.lineTo(overallDims.leftX, overallDims.y2);
+                    left.moveTo(overallDims.leftX - cap, overallDims.y1);
+                    left.lineTo(overallDims.leftX + cap, overallDims.y1);
+                    left.moveTo(overallDims.leftX - cap, overallDims.y2);
+                    left.lineTo(overallDims.leftX + cap, overallDims.y2);
+                    return (
+                      <Group>
+                        <Path path={top} color={c} style="stroke" strokeWidth={1.5} />
+                        <Path path={left} color={c} style="stroke" strokeWidth={1.5} />
+                      </Group>
+                    );
+                  })()
+                : null}
+
+              {/* Polygon shells: an arrow handle per corner + edge-wall dots. */}
+              {selected && isPolygonStructure(selected)
+                ? (() => {
+                    const ph = polygonHandles(selected);
+                    const rot = planToScreen(ph.rotate.x, ph.rotate.y);
+                    const top = planToScreen(ph.top.x, ph.top.y);
+                    const center = planToScreen(ph.center.x, ph.center.y);
+                    const link = Skia.Path.Make();
+                    link.moveTo(top.sx, top.sy);
+                    link.lineTo(rot.sx, rot.sy);
+                    return (
+                      <Group>
+                        <Path path={link} color={colors.accent} style="stroke" strokeWidth={1.5} />
+                        <Circle cx={rot.sx} cy={rot.sy} r={10} color="#fff" />
+                        <Circle cx={rot.sx} cy={rot.sy} r={10} color={colors.accent} style="stroke" strokeWidth={2} />
+                        {/* edge-midpoint handles — drag to move a whole wall */}
+                        {ph.edges.map((eh) => {
+                          const s = planToScreen(eh.x, eh.y);
+                          return (
+                            <Group key={eh.id}>
+                              <Circle cx={s.sx} cy={s.sy} r={5.5} color="#fff" />
+                              <Circle cx={s.sx} cy={s.sy} r={5.5} color={colors.accent} style="stroke" strokeWidth={2} />
+                            </Group>
+                          );
+                        })}
+                        {/* center move handle */}
+                        <Circle cx={center.sx} cy={center.sy} r={6} color="#fff" />
+                        <Circle cx={center.sx} cy={center.sy} r={6} color={colors.accent} style="stroke" strokeWidth={2} />
+                        <Circle cx={center.sx} cy={center.sy} r={2.4} color={colors.accent} />
+                        {/* corner handles — 4-way arrow, drag to reshape one corner */}
+                        {ph.verts.map((v) => {
+                          const s = planToScreen(v.x, v.y);
+                          return (
+                            <Group key={v.id}>
+                              <Circle cx={s.sx} cy={s.sy} r={11} color="#fff" />
+                              <Circle cx={s.sx} cy={s.sy} r={11} color={colors.accent} style="stroke" strokeWidth={2} />
+                              <Path path={fourArrowPath(s.sx, s.sy, 6)} color={colors.accent} style="stroke" strokeWidth={1.6} strokeCap="round" strokeJoin="round" />
+                            </Group>
+                          );
+                        })}
+                      </Group>
+                    );
+                  })()
+                : null}
+
+              {selected && !isPolygonStructure(selected)
                 ? (() => {
                     const h = handlePositions(selected);
                     const rot = planToScreen(h.rotate.x, h.rotate.y);
@@ -772,23 +1288,18 @@ export default function FloorPlanEditorScreen({ navigation }) {
                     link.lineTo(rot.sx, rot.sy);
                     return (
                       <Group>
-                        <Path path={box} color={colors.accent} style="stroke" strokeWidth={1.5} />
+                        <Path path={box} color={colors.accent} style="stroke" strokeWidth={1.5}>
+                          <DashPathEffect intervals={[2, 4]} />
+                        </Path>
                         <Path path={link} color={colors.accent} style="stroke" strokeWidth={1.5} />
                         <Circle cx={rot.sx} cy={rot.sy} r={10} color="#fff" />
                         <Circle cx={rot.sx} cy={rot.sy} r={10} color={colors.accent} style="stroke" strokeWidth={2} />
+                        {/* 9 dotted handles: 4 corners + 4 edge mids (resize) + center (move) */}
                         {pts.map((p) => (
                           <Group key={p.id}>
-                            <RoundedRect x={p.sx - 6} y={p.sy - 6} width={12} height={12} r={3} color="#fff" />
-                            <RoundedRect
-                              x={p.sx - 6}
-                              y={p.sy - 6}
-                              width={12}
-                              height={12}
-                              r={3}
-                              color={colors.accent}
-                              style="stroke"
-                              strokeWidth={2}
-                            />
+                            <Circle cx={p.sx} cy={p.sy} r={5.5} color="#fff" />
+                            <Circle cx={p.sx} cy={p.sy} r={5.5} color={colors.accent} style="stroke" strokeWidth={2} />
+                            {p.id === 'c' ? <Circle cx={p.sx} cy={p.sy} r={2.4} color={colors.accent} /> : null}
                           </Group>
                         ))}
                       </Group>
@@ -858,8 +1369,46 @@ export default function FloorPlanEditorScreen({ navigation }) {
         </GestureDetector>
       </View>
 
-      {/* Text overlays (dimensions + measurement) */}
+      {/* Text overlays (labels + dimensions + measurement) */}
       <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+        {(plan.texts || []).map((t) => {
+          const s = planToScreen(t.x, t.y);
+          const fontSize = Math.max(9, (t.size || 0.5) * ppm * zoom);
+          const isSel = t.id === selectedTextId;
+          return (
+            <View
+              key={t.id}
+              style={{
+                position: 'absolute',
+                left: s.sx - 150,
+                top: s.sy - fontSize * 0.75,
+                width: 300,
+                alignItems: 'center',
+                transform: [{ rotate: `${t.rotation || 0}deg` }],
+              }}
+            >
+              <Text
+                numberOfLines={1}
+                style={{
+                  fontSize,
+                  fontWeight: '800',
+                  color: colors.ink,
+                  ...(isSel
+                    ? {
+                        paddingHorizontal: 6,
+                        borderRadius: 6,
+                        borderWidth: 1.5,
+                        borderColor: colors.accent,
+                        backgroundColor: isDark ? 'rgba(188,91,58,0.18)' : 'rgba(188,91,58,0.12)',
+                      }
+                    : null),
+                }}
+              >
+                {t.text || ' '}
+              </Text>
+            </View>
+          );
+        })}
         {dimLabels.map((l) => (
           <View
             key={l.id}
@@ -913,54 +1462,90 @@ export default function FloorPlanEditorScreen({ navigation }) {
             count={project?.floors?.length || 1}
             onPress={() => floorSheetRef.current?.present()}
           />
+          <IconButton icon="settings" onPress={() => navigation.navigate(ROUTES.settings)} />
           <IconButton icon="menu" onPress={() => setDrawerOpen(true)} />
         </View>
       </View>
 
-      {/* Contextual selection bar — sits above the footer when an item is picked */}
-      {selected ? (
-        <View
-          style={[
-            {
-              position: 'absolute',
-              bottom: footerH + 12,
-              left: 16,
-              right: 16,
-              backgroundColor: colors.surface,
-              borderRadius: radius.lg,
-              borderWidth: 1,
-              borderColor: colors.line,
-              paddingHorizontal: 14,
-              paddingVertical: 10,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 10,
-            },
-            shadows.e3,
-          ]}
-        >
-          <View style={{ flex: 1 }}>
-            <Text variant="titleSm" numberOfLines={1}>
-              {selected.name}
-            </Text>
-            <Text variant="caption" color="ink3">
-              {`${itemDims(selected).w.toFixed(2)} × ${itemDims(selected).d.toFixed(2)} m · ${selected.rotation}°`}
-            </Text>
+      {/* Contextual action bar — the upper of the two footer lists. Appears when
+          any element is selected; its actions adapt to the selection type. */}
+      {(() => {
+        if (!selected && !selectedRoom && !selectedText) return null;
+
+        let title = '';
+        let caption = '';
+        let actions = [];
+
+        if (selected) {
+          const d = itemDims(selected);
+          title = selected.name;
+          caption = `${formatLength(d.w, unit)} × ${formatLength(d.d, unit)} · ${selected.rotation}°`;
+          actions = [
+            { icon: 'ruler', label: 'Measure', onPress: () => openSheet('measure') },
+            { icon: 'palette', label: 'Colors', onPress: () => openSheet('style') },
+            { icon: 'rotate', label: 'Rotate', onPress: rotateSelected90 },
+            { icon: 'duplicate', label: 'Clone', onPress: duplicateSelected },
+            { icon: 'mirror', label: 'Mirror', onPress: mirrorSelected },
+            { icon: 'trash', label: 'Delete', onPress: deleteSelected, danger: true },
+          ];
+        } else if (selectedRoom) {
+          title = 'Room';
+          caption = `${formatLength(selectedRoom.w, unit)} × ${formatLength(selectedRoom.h, unit)}`;
+          actions = [
+            { icon: 'ruler', label: 'Measures', onPress: () => roomSheetRef.current?.present() },
+            { icon: 'palette', label: 'Colors', onPress: () => roomSheetRef.current?.present() },
+            { icon: 'duplicate', label: 'Clone', onPress: duplicateSelectedRoom },
+            { icon: 'mirror', label: 'Mirror', onPress: mirrorSelectedRoom },
+            { icon: 'trash', label: 'Delete', onPress: deleteSelectedRoom, danger: true },
+          ];
+        } else if (selectedText) {
+          title = selectedText.text || 'Text label';
+          caption = 'Text label';
+          actions = [
+            { icon: 'pencil', label: 'Edit', onPress: () => textSheetRef.current?.present() },
+            { icon: 'rotate', label: 'Rotate', onPress: rotateSelectedText90 },
+            { icon: 'duplicate', label: 'Clone', onPress: duplicateSelectedText },
+            { icon: 'trash', label: 'Delete', onPress: deleteSelectedText, danger: true },
+          ];
+        }
+
+        return (
+          <View
+            style={[
+              {
+                position: 'absolute',
+                bottom: footerH + 12,
+                left: 12,
+                right: 12,
+                backgroundColor: colors.surface,
+                borderRadius: radius.lg,
+                borderWidth: 1,
+                borderColor: colors.line,
+                paddingVertical: 8,
+              },
+              shadows.e3,
+            ]}
+          >
+            <View style={{ paddingHorizontal: 14, paddingBottom: 6 }}>
+              <Text variant="titleSm" numberOfLines={1}>
+                {title}
+              </Text>
+              <Text variant="caption" color="ink3" numberOfLines={1}>
+                {caption}
+              </Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{ paddingHorizontal: 10, gap: 8, alignItems: 'center' }}
+            >
+              {actions.map((a) => (
+                <ActionPill key={a.label} icon={a.icon} label={a.label} danger={a.danger} onPress={a.onPress} />
+              ))}
+            </ScrollView>
           </View>
-          <SelBtn bg={colors.accentSoft} onPress={openSheet}>
-            <Icon name="pencil" size={16} color={colors.accent} strokeWidth={2} />
-          </SelBtn>
-          <SelBtn bg={colors.surface2} onPress={rotateSelected90}>
-            <Icon name="rotate" size={16} color={colors.ink2} strokeWidth={2} />
-          </SelBtn>
-          <SelBtn bg={colors.surface2} onPress={duplicateSelected}>
-            <Icon name="duplicate" size={16} color={colors.ink2} strokeWidth={2} />
-          </SelBtn>
-          <SelBtn bg={isDark ? '#3A2420' : '#FDECEA'} onPress={deleteSelected}>
-            <Icon name="trash" size={15} color={colors.dangerDark} strokeWidth={2} />
-          </SelBtn>
-        </View>
-      ) : null}
+        );
+      })()}
 
       {/* Finish draft button — clears the current draft, above the footer */}
       {pending || (measure && measure.b) || (outline && outline.length >= 3) ? (
@@ -993,7 +1578,7 @@ export default function FloorPlanEditorScreen({ navigation }) {
         </Pressable>
       ) : null}
 
-      {/* Footer — one horizontal scroll of tools, toggles & actions */}
+      {/* Footer — 3D pinned right (always visible); tools, toggles & actions scroll */}
       <View
         style={[
           {
@@ -1001,6 +1586,8 @@ export default function FloorPlanEditorScreen({ navigation }) {
             left: 0,
             right: 0,
             bottom: 0,
+            flexDirection: 'row',
+            alignItems: 'center',
             backgroundColor: colors.surface,
             borderTopWidth: 1,
             borderTopColor: colors.line,
@@ -1013,9 +1600,12 @@ export default function FloorPlanEditorScreen({ navigation }) {
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 12, gap: 6, alignItems: 'center' }}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ paddingHorizontal: 6, gap: 6, alignItems: 'center' }}
         >
-          {TOOLS.map((t) => (
+          <FooterButton icon="plus" label="Add" active={drawerOpen} onPress={() => setDrawerOpen(true)} />
+          <FooterDivider color={colors.line} />
+          {EDITOR_TOOLS.map((t) => (
             <FooterButton
               key={t.id}
               icon={t.icon}
@@ -1028,27 +1618,60 @@ export default function FloorPlanEditorScreen({ navigation }) {
           <FooterButton icon="magnet" label="Snap" active={snapOn} onPress={() => setSnapOn((s) => !s)} />
           <FooterButton icon="ruler" label="Dims" active={showDims} onPress={() => setShowDims((s) => !s)} />
           <FooterButton icon="palette" label="Style" onPress={() => styleSheetRef.current?.present()} />
-          <FooterDivider color={colors.line} />
           <FooterButton icon="building" label="Estimate" onPress={() => navigation.navigate(ROUTES.estimate)} />
-          <FooterButton icon="cube" label="3D" accent onPress={() => navigation.navigate(ROUTES.view3d)} />
         </ScrollView>
+        {/* Fixed 3D button — one of the primary features, never scrolls away */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingRight: 12 }}>
+          <FooterDivider color={colors.line} />
+          <FooterButton icon="cube" label="3D" accent onPress={() => navigation.navigate(ROUTES.view3d)} />
+        </View>
       </View>
 
-      {/* Quick-add catalog drawer (opens from the header menu) */}
+      {/* Sidebar — compact quick-add catalog (opens from header menu / Add).
+          Rows can be tapped (drop at center) or dragged onto the canvas. */}
       <CatalogDrawer
         visible={drawerOpen}
         initialCategory={drawerCategory}
         onClose={() => setDrawerOpen(false)}
         onAdd={addItem}
+        onDragStart={handleDragStart}
+        onDragMove={handleDragMove}
+        onDragEnd={handleDragEnd}
+        dragActive={!!dragGhost}
         onViewDetails={(category) => {
           setDrawerOpen(false);
           navigation.navigate(ROUTES.catalog, { category });
         }}
       />
 
+      {/* Drag-to-place ghost — follows the finger from the sidebar to the drop
+          point. Non-interactive so it never eats the underlying gesture. */}
+      {dragGhost ? (
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            left: dragGhost.x - canvasFrameRef.current.x - 34,
+            top: dragGhost.y - canvasFrameRef.current.y - 34,
+            width: 68,
+            height: 68,
+            borderRadius: 16,
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: isDark ? 'rgba(33,25,20,0.92)' : 'rgba(255,255,255,0.94)',
+            borderWidth: 2,
+            borderColor: colors.accent,
+          }}
+        >
+          <FurnitureGlyph kind={dragGhost.item.kind} size={44} color={dragGhost.item.colors?.[0]} />
+        </View>
+      ) : null}
+
       <ItemPlacementSheet
         ref={sheetRef}
         item={selected}
+        tab={itemTab}
+        onTabChange={setItemTab}
         wallHeight={plan?.wallHeight ?? 2.6}
         onChange={patchSelected}
         onDuplicate={duplicateSelected}
@@ -1057,6 +1680,36 @@ export default function FloorPlanEditorScreen({ navigation }) {
           sheetRef.current?.dismiss();
         }}
         onDone={() => sheetRef.current?.dismiss()}
+      />
+      <RoomSettingsSheet
+        ref={roomSheetRef}
+        room={selectedRoom}
+        onResize={resizeSelectedRoom}
+        onWallThickness={setSelectedWallThickness}
+        onColor={setSelectedRoomColor}
+        onDuplicate={() => {
+          duplicateSelectedRoom();
+          roomSheetRef.current?.dismiss();
+        }}
+        onDelete={() => {
+          deleteSelectedRoom();
+          roomSheetRef.current?.dismiss();
+        }}
+        onDone={() => roomSheetRef.current?.dismiss()}
+      />
+      <TextSettingsSheet
+        ref={textSheetRef}
+        element={selectedText}
+        onChange={patchSelectedText}
+        onDuplicate={() => {
+          duplicateSelectedText();
+          textSheetRef.current?.dismiss();
+        }}
+        onDelete={() => {
+          deleteSelectedText();
+          textSheetRef.current?.dismiss();
+        }}
+        onDone={() => textSheetRef.current?.dismiss()}
       />
       <RoomStyleSheet
         ref={styleSheetRef}
@@ -1078,6 +1731,31 @@ export default function FloorPlanEditorScreen({ navigation }) {
       />
     </SafeAreaView>
   );
+}
+
+// A compact 4-directional arrow glyph (screen space) drawn inside a corner
+// handle so it reads as "drag me in any direction to reshape this corner".
+function fourArrowPath(cx, cy, a) {
+  const p = Skia.Path.Make();
+  const hd = a * 0.5; // arrowhead size
+  p.moveTo(cx - a, cy);
+  p.lineTo(cx + a, cy);
+  p.moveTo(cx, cy - a);
+  p.lineTo(cx, cy + a);
+  // heads: left, right, up, down
+  p.moveTo(cx - a + hd, cy - hd);
+  p.lineTo(cx - a, cy);
+  p.lineTo(cx - a + hd, cy + hd);
+  p.moveTo(cx + a - hd, cy - hd);
+  p.lineTo(cx + a, cy);
+  p.lineTo(cx + a - hd, cy + hd);
+  p.moveTo(cx - hd, cy - a + hd);
+  p.lineTo(cx, cy - a);
+  p.lineTo(cx + hd, cy - a + hd);
+  p.moveTo(cx - hd, cy + a - hd);
+  p.lineTo(cx, cy + a);
+  p.lineTo(cx + hd, cy + a - hd);
+  return p;
 }
 
 function IconButton({ icon, onPress, tint, active }) {
@@ -1156,14 +1834,27 @@ function FooterDivider({ color }) {
   return <View style={{ width: 1, height: 30, backgroundColor: color, marginHorizontal: 4 }} />;
 }
 
-// A compact square action button used by the contextual selection bar.
-function SelBtn({ bg, onPress, children }) {
+// A pill in the contextual action bar: icon over a small label.
+function ActionPill({ icon, label, danger, onPress }) {
+  const { colors, radius, isDark } = useTheme();
+  const bg = danger ? (isDark ? '#3A2420' : '#FDECEA') : colors.surface2;
+  const fg = danger ? colors.dangerDark : colors.ink2;
   return (
     <Pressable
       onPress={onPress}
-      style={{ width: 40, height: 40, borderRadius: 12, backgroundColor: bg, alignItems: 'center', justifyContent: 'center' }}
+      style={{
+        minWidth: 62,
+        height: 52,
+        paddingHorizontal: 12,
+        borderRadius: radius.md,
+        backgroundColor: bg,
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 3,
+      }}
     >
-      {children}
+      <Icon name={icon} size={18} color={fg} strokeWidth={2} />
+      <Text style={{ fontSize: 10.5, fontWeight: '700', color: fg }}>{label}</Text>
     </Pressable>
   );
 }

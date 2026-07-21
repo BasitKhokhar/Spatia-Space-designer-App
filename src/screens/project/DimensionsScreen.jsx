@@ -12,8 +12,9 @@ import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { roomTypeById, isShopRoom } from '@/data/roomTypes';
 import { hasStarterLayout } from '@/data/starterLayouts';
-import { areaM2, formatLength } from '@/domain/units';
+import { areaM2, formatLength, formatArea } from '@/domain/units';
 import { useProjectsStore } from '@/store/useProjectsStore';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { ROUTES } from '@/navigation/routes';
 
 export default function DimensionsScreen({ navigation, route }) {
@@ -21,9 +22,11 @@ export default function DimensionsScreen({ navigation, route }) {
   const roomType = roomTypeById(route.params?.roomTypeId);
   const createProject = useProjectsStore((s) => s.createProject);
 
+  const unit = useSettingsStore((s) => s.measurementUnit);
+  const setUnit = useSettingsStore((s) => s.setMeasurementUnit);
+
   const [width, setWidth] = useState(roomType.defaults.width);
   const [length, setLength] = useState(roomType.defaults.length);
-  const [unit, setUnit] = useState('meters');
   const [seed, setSeed] = useState(isShopRoom(roomType.id));
   const canSeed = hasStarterLayout(roomType.id);
 
@@ -117,7 +120,7 @@ export default function DimensionsScreen({ navigation, route }) {
             }}
           >
             <Text variant="label" color="onAccent">
-              {areaM2(width, length)} m²
+              {formatArea(areaM2(width, length), unit)}
             </Text>
           </View>
         </View>

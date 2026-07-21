@@ -8,7 +8,8 @@ import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import FurnitureGlyph from '@/components/graphics/FurnitureGlyph';
 import { itemDims } from '@/domain/floorplan';
-import { metersToFeet } from '@/domain/units';
+import { metersToFeet, formatLength } from '@/domain/units';
+import { useSettingsStore } from '@/store/useSettingsStore';
 import { partsFor, isMountable } from '@/data/itemEditor';
 
 // Palette used for parts that don't declare their own swatches (the implicit
@@ -19,12 +20,15 @@ const FALLBACK_SWATCHES = ['#BC5B3A', '#4E7C59', '#8A6250', '#3E4A5C', '#D8D2C4'
 // transform (rotation / scale). Compact + tabbed with horizontal option rows so
 // it stays short on small screens. Fully controlled — the parent owns the item.
 const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
-  { item, onChange, onDuplicate, onDelete, onDone, wallHeight = 2.6 },
+  { item, onChange, onDuplicate, onDelete, onDone, wallHeight = 2.6, tab: tabProp, onTabChange },
   ref
 ) {
   const { colors, radius } = useTheme();
+  const unit = useSettingsStore((s) => s.measurementUnit);
   const snapPoints = useMemo(() => ['52%'], []);
-  const [tab, setTab] = useState('style');
+  const [tabState, setTabState] = useState('style');
+  const tab = tabProp ?? tabState;
+  const setTab = onTabChange ?? setTabState;
   const [partKey, setPartKey] = useState(null);
 
   if (!item) {
@@ -63,6 +67,7 @@ const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
     { key: 'style', label: 'Style' },
     ...(mountable ? [{ key: 'height', label: 'Height' }] : []),
     { key: 'transform', label: 'Transform' },
+    { key: 'measure', label: 'Measure' },
   ];
 
   // Height presets (meters), clamped into the valid range for this item.
@@ -103,7 +108,7 @@ const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
               {item.name}
             </Text>
             <Text variant="bodySm" color="ink3" style={{ marginTop: 3 }}>
-              {Math.round(item.w * 100)} × {Math.round(item.d * 100)} × {Math.round(item.h * 100)} cm
+              {formatLength(dims.w, unit)} × {formatLength(dims.d, unit)} × {formatLength(dims.h, unit)}
             </Text>
           </View>
           <Pressable
@@ -205,7 +210,9 @@ const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
                   {item.shape?.type === 'window' ? 'Sill height' : 'Height off floor'}
                 </Text>
                 <Text variant="bodySm" color="ink3">
-                  {elevation.toFixed(2)} m · {metersToFeet(elevation).toFixed(1)} ft
+                  {unit === 'feet'
+                    ? `${metersToFeet(elevation).toFixed(1)} ft`
+                    : `${elevation.toFixed(2)} m`}
                 </Text>
               </View>
               <Slider
@@ -272,6 +279,37 @@ const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
                 style={{ marginTop: 12 }}
               />
             </>
+          )}
+
+          {activeTab === 'measure' && (
+            <View style={{ gap: 10 }}>
+              {[
+                { label: 'Width', v: dims.w },
+                { label: 'Depth', v: dims.d },
+                { label: 'Height', v: dims.h },
+              ].map((row) => (
+                <View
+                  key={row.label}
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    height: 44,
+                    paddingHorizontal: 14,
+                    borderRadius: radius.md,
+                    backgroundColor: colors.surface2,
+                  }}
+                >
+                  <Text variant="label" color="ink2">
+                    {row.label}
+                  </Text>
+                  <Text variant="titleSm">{formatLength(row.v, unit)}</Text>
+                </View>
+              ))}
+              <Text variant="caption" color="ink3" style={{ marginTop: 2 }}>
+                Resize on the canvas or use the Transform tab to change these.
+              </Text>
+            </View>
           )}
         </View>
 

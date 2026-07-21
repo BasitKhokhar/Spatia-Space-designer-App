@@ -1,6 +1,7 @@
 import { uid } from '@/utils/id';
 import { areaM2 } from './units';
 import { defaultElevation } from '@/data/itemEditor';
+import { polygonLocalPoints, shapePolygon } from '@/data/structure';
 
 // ---------------------------------------------------------------------------
 // The floor-plan model is the single source of truth shared by the 2D editor,
@@ -63,17 +64,21 @@ function normalizePolygon(points) {
 
 // Create a fresh floor plan. Pass `footprint` (ordered polygon of {x,y} in
 // meters) for a non-rectangular room; otherwise a rectangle of width×length.
-export function createFloorPlan({ width = 4.2, length = 3.6, footprint = null } = {}) {
+export function createFloorPlan({ width = 4.2, length = 3.6, footprint = null, perimeter = true } = {}) {
   const fp = footprint && footprint.length >= 3 ? normalizePolygon(footprint) : null;
   const w = fp ? fp.width : width;
   const l = fp ? fp.length : length;
+  // A polygon footprint always draws its outline. Otherwise `perimeter` decides:
+  // true → a rectangle of the given size; false → a blank canvas the user draws
+  // everything on (no auto-added room / square).
   return {
     width: w,
     length: l,
     wallHeight: 2.6,
-    walls: fp ? polygonWalls(fp.points) : rectWalls(w, l),
+    walls: fp ? polygonWalls(fp.points) : perimeter ? rectWalls(w, l) : [],
     openings: [],
     furniture: [], // see addFurnitureItem
+    texts: [], // movable text annotations — see addText
     materials: { floor: 'oak', wall: '#EBE4D8' },
     ...(fp ? { footprint: fp.points } : {}),
   };
@@ -147,24 +152,145 @@ export function removeWall(plan, id) {
   };
 }
 
-// Add a rectangular room / partition block as four interior walls.
+// The four sides of a room rectangle, in creation order. Stored on each wall as
+// `side` so `updateRoomRect` can rewrite geometry by side and the room sheet can
+// label each wall (Top / Right / Bottom / Left).
+const ROOM_SIDES = ['top', 'right', 'bottom', 'left'];
+
+// Corner endpoints for a room rectangle, per side.
+function roomCorners(x, y, w, h) {
+  return {
+    top: [x, y, x + w, y],
+    right: [x + w, y, x + w, y + h],
+    bottom: [x + w, y + h, x, y + h],
+    left: [x, y + h, x, y],
+  };
+}
+
+// Add a rectangular room / partition block as four interior walls that share a
+// `group` id, so the editor can select and edit the whole rectangle as one unit
+// while the model keeps rendering plain walls (3D / export are unaffected).
 export function addRoomRect(plan, x, y, w, h, thickness = DEFAULT_WALL_THICKNESS) {
-  const corners = [
-    [x, y, x + w, y],
-    [x + w, y, x + w, y + h],
-    [x + w, y + h, x, y + h],
-    [x, y + h, x, y],
-  ];
-  const walls = corners.map(([x1, y1, x2, y2]) => ({
-    id: uid('wall'),
-    x1,
-    y1,
-    x2,
-    y2,
-    thickness,
-    perimeter: false,
-  }));
+  const group = uid('room');
+  const corners = roomCorners(x, y, w, h);
+  const walls = ROOM_SIDES.map((side) => {
+    const [x1, y1, x2, y2] = corners[side];
+    return { id: uid('wall'), x1, y1, x2, y2, thickness, perimeter: false, group, side };
+  });
   return { ...plan, walls: [...plan.walls, ...walls] };
+}
+
+// ---- Rooms (grouped-wall rectangles) -------------------------------------
+
+// Derive every room group from the grouped interior walls: its member walls and
+// the axis-aligned bounding box { x, y, w, h } spanning their endpoints.
+export function roomGroups(plan) {
+  const byGroup = new Map();
+  for (const wall of plan.walls || []) {
+    if (!wall.group) continue;
+    if (!byGroup.has(wall.group)) byGroup.set(wall.group, []);
+    byGroup.get(wall.group).push(wall);
+  }
+  const out = [];
+  for (const [id, walls] of byGroup) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const w of walls) {
+      minX = Math.min(minX, w.x1, w.x2);
+      minY = Math.min(minY, w.y1, w.y2);
+      maxX = Math.max(maxX, w.x1, w.x2);
+      maxY = Math.max(maxY, w.y1, w.y2);
+    }
+    out.push({ id, walls, x: minX, y: minY, w: maxX - minX, h: maxY - minY });
+  }
+  return out;
+}
+
+export function roomById(plan, groupId) {
+  return roomGroups(plan).find((r) => r.id === groupId) || null;
+}
+
+// Rewrite a room group's four walls to a new rectangle, keeping wall ids (so any
+// openings cut into them survive) and each wall's own thickness.
+export function updateRoomRect(plan, groupId, { x, y, w, h }) {
+  const corners = roomCorners(x, y, w, h);
+  return {
+    ...plan,
+    walls: plan.walls.map((wall) => {
+      if (wall.group !== groupId || !wall.side) return wall;
+      const [x1, y1, x2, y2] = corners[wall.side] || [wall.x1, wall.y1, wall.x2, wall.y2];
+      return { ...wall, x1, y1, x2, y2 };
+    }),
+  };
+}
+
+// Generic single-wall patch (used for per-wall thickness edits).
+export function updateWall(plan, wallId, patch) {
+  return {
+    ...plan,
+    walls: plan.walls.map((w) => (w.id === wallId ? { ...w, ...patch } : w)),
+  };
+}
+
+// Per-room floor tint — stored as `color` on all four grouped walls so the 2D
+// canvas can fill the room's footprint. Purely a 2D concept (3D/export ignore it).
+export function setRoomColor(plan, groupId, color) {
+  return {
+    ...plan,
+    walls: plan.walls.map((w) => (w.group === groupId ? { ...w, color } : w)),
+  };
+}
+
+export function removeRoom(plan, groupId) {
+  const removed = new Set(plan.walls.filter((w) => w.group === groupId).map((w) => w.id));
+  return {
+    ...plan,
+    walls: plan.walls.filter((w) => w.group !== groupId),
+    openings: plan.openings.filter((o) => !removed.has(o.wallId)),
+  };
+}
+
+// Clone a room, offset by 30 cm, with a fresh group + wall ids. Openings are not
+// copied (they reference the source walls).
+export function duplicateRoom(plan, groupId) {
+  const room = roomById(plan, groupId);
+  if (!room) return plan;
+  const g = uid('room');
+  const copies = room.walls.map((w) => ({
+    ...w,
+    id: uid('wall'),
+    group: g,
+    x1: w.x1 + 0.3,
+    y1: w.y1 + 0.3,
+    x2: w.x2 + 0.3,
+    y2: w.y2 + 0.3,
+  }));
+  return { ...plan, walls: [...plan.walls, ...copies] };
+}
+
+// Mirror a room horizontally about its own center: reflect x and swap the
+// left/right wall thicknesses so the room reads flipped.
+export function mirrorRoom(plan, groupId) {
+  const room = roomById(plan, groupId);
+  if (!room) return plan;
+  const cx = room.x + room.w / 2;
+  const thick = {};
+  for (const w of room.walls) thick[w.side] = w.thickness;
+  const swap = { top: 'top', bottom: 'bottom', left: 'right', right: 'left' };
+  return {
+    ...plan,
+    walls: plan.walls.map((w) => {
+      if (w.group !== groupId) return w;
+      return {
+        ...w,
+        x1: 2 * cx - w.x1,
+        x2: 2 * cx - w.x2,
+        thickness: thick[swap[w.side]] ?? w.thickness,
+      };
+    }),
+  };
 }
 
 // Distance from a point to a wall segment, plus the closest t (0..1).
@@ -266,6 +392,31 @@ export function itemWallOpenings(plan) {
   return out;
 }
 
+// ---- Text annotations ----------------------------------------------------
+// Free-floating labels (e.g. "Hall") the user places to name areas. Purely a 2D
+// overlay concept: the 3D view and OBJ export ignore `plan.texts`. `size` is the
+// glyph height in meters so it scales with the plan like everything else.
+
+export function addText(plan, { x, y, text = 'Label', size = 0.5 }) {
+  const t = { id: uid('text'), text, x, y, size, rotation: 0 };
+  return { ...plan, texts: [...(plan.texts || []), t] };
+}
+
+export function updateText(plan, id, patch) {
+  return { ...plan, texts: (plan.texts || []).map((t) => (t.id === id ? { ...t, ...patch } : t)) };
+}
+
+export function removeText(plan, id) {
+  return { ...plan, texts: (plan.texts || []).filter((t) => t.id !== id) };
+}
+
+export function duplicateText(plan, id) {
+  const src = (plan.texts || []).find((t) => t.id === id);
+  if (!src) return plan;
+  const copy = { ...src, id: uid('text'), x: src.x + 0.3, y: src.y + 0.3 };
+  return { ...plan, texts: [...(plan.texts || []), copy] };
+}
+
 // ---- Materials -----------------------------------------------------------
 
 export function setMaterials(plan, patch) {
@@ -295,15 +446,55 @@ export function addFurnitureItem(plan, catalogItem, position) {
     scale: 1,
     sx: 1,
     sy: 1,
+    mirrored: false, // horizontal flip (see 2D FurnitureShape / 3D PlacedItem)
     color: catalogItem.colors?.[0] ?? '#BC5B3A',
     // Per-part color overrides (empty = use the builder's defaults) and the
     // height off the floor slab in meters (0 for floor items, > 0 for wall
     // items like TV/AC). See src/data/itemEditor.js.
     parts: {},
     elevation: defaultElevation(catalogItem.kind),
-    ...(catalogItem.structure ? { structure: true, shape: catalogItem.shape } : {}),
+    ...(catalogItem.structure ? { structure: true, shape: structureShape(catalogItem) } : {}),
   };
   return { ...plan, furniture: [...plan.furniture, item] };
+}
+
+// Clone a catalog shape for a placed instance. Polygon shells (square / L / U / T
+// rooms, landing) get an editable `points` list in local meters so every corner
+// can be dragged independently; other shapes are copied as-is.
+function structureShape(catalogItem) {
+  const shape = catalogItem.shape || {};
+  if (shape.type === 'polygon') {
+    const w = catalogItem.dimensions.w / 100;
+    const d = catalogItem.dimensions.d / 100;
+    const points = polygonLocalPoints(shape.kind, w, d);
+    return points ? { ...shape, points } : { ...shape };
+  }
+  return { ...shape };
+}
+
+// True for room-shell structures whose outline is an editable polygon.
+export function isPolygonStructure(f) {
+  return !!(f?.structure && f.shape?.type === 'polygon');
+}
+
+// Editable vertex list (local meters, centered on the item origin) for a polygon
+// structure. Falls back to deriving points from the kind's outline for items saved
+// before per-corner editing existed.
+export function structureLocalPoints(f) {
+  if (!isPolygonStructure(f)) return null;
+  if (Array.isArray(f.shape.points) && f.shape.points.length >= 3) return f.shape.points;
+  const s = f.scale ?? 1;
+  return polygonLocalPoints(f.shape.kind, f.w * s * (f.sx ?? 1), f.d * s * (f.sy ?? 1)) ||
+    (shapePolygon(f.shape.kind) || []).map(([nx, ny]) => ({ x: nx - 0.5, y: ny - 0.5 }));
+}
+
+// Axis-aligned bounds of a polygon structure's points in its local frame.
+export function structureLocalBounds(f) {
+  const pts = structureLocalPoints(f);
+  if (!pts || !pts.length) return null;
+  const xs = pts.map((p) => p.x);
+  const ys = pts.map((p) => p.y);
+  return { minX: Math.min(...xs), minY: Math.min(...ys), maxX: Math.max(...xs), maxY: Math.max(...ys) };
 }
 
 // Effective footprint of a placed item in meters, combining the uniform `scale`
@@ -312,6 +503,12 @@ export function addFurnitureItem(plan, catalogItem, position) {
 // the 2D editor, 3D view and OBJ exporter.
 export function itemDims(f) {
   const s = f.scale ?? 1;
+  // Polygon shells carry their own edited vertices — their footprint is the
+  // bounding box of those points, so a dragged corner grows/shrinks the item.
+  if (isPolygonStructure(f) && Array.isArray(f.shape.points) && f.shape.points.length >= 3) {
+    const b = structureLocalBounds(f);
+    return { w: b.maxX - b.minX, d: b.maxY - b.minY, h: f.h * s };
+  }
   return {
     w: f.w * s * (f.sx ?? 1),
     d: f.d * s * (f.sy ?? 1),

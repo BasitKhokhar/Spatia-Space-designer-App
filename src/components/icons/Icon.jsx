@@ -359,6 +359,16 @@ const ICONS = {
       <Path d="M3 12 H21 M9 6 V12 M15 12 V18" stroke={c} strokeWidth={w} />
     </G>
   ),
+  text: (c, w) => (
+    <Path d="M5 5 H19 M12 5 V19 M9 19 H15" stroke={c} strokeWidth={w} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+  ),
+  mirror: (c, w) => (
+    <G>
+      <Path d="M12 3 V21" stroke={c} strokeWidth={w} strokeDasharray="2 3" strokeLinecap="round" />
+      <Path d="M9 6 L4 12 L9 18 Z" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+      <Path d="M15 6 L20 12 L15 18 Z" stroke={c} strokeWidth={w} fill="none" strokeLinejoin="round" />
+    </G>
+  ),
   magnet: (c, w) => (
     <G>
       <Path d="M6 3 v8 a6 6 0 0 0 12 0 V3" stroke={c} strokeWidth={w} fill="none" strokeLinecap="round" />

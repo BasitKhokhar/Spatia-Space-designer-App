@@ -9,17 +9,20 @@ export const useSettingsStore = create(
     (set) => ({
       themePreference: 'system', // 'light' | 'dark' | 'system'
       language: 'English',
+      measurementUnit: 'meters', // 'meters' | 'feet'
       onboardingComplete: false,
       notificationsEnabled: true,
 
       setThemePreference: (themePreference) => set({ themePreference }),
       setLanguage: (language) => set({ language }),
+      setMeasurementUnit: (measurementUnit) => set({ measurementUnit }),
       completeOnboarding: () => set({ onboardingComplete: true }),
       setNotifications: (notificationsEnabled) => set({ notificationsEnabled }),
       reset: () =>
         set({
           themePreference: 'system',
           language: 'English',
+          measurementUnit: 'meters',
           onboardingComplete: false,
           notificationsEnabled: true,
         }),

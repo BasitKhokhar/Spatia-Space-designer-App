@@ -38,6 +38,8 @@ export default function SettingsScreen({ navigation }) {
   const { colors } = useTheme();
   const themePreference = useSettingsStore((s) => s.themePreference);
   const setThemePreference = useSettingsStore((s) => s.setThemePreference);
+  const measurementUnit = useSettingsStore((s) => s.measurementUnit);
+  const setMeasurementUnit = useSettingsStore((s) => s.setMeasurementUnit);
   const language = useSettingsStore((s) => s.language);
   const logout = useAuthStore((s) => s.logout);
 
@@ -72,6 +74,22 @@ export default function SettingsScreen({ navigation }) {
               ]}
               value={themePreference}
               onChange={setThemePreference}
+            />
+          </View>
+          <RowDivider />
+          <View style={{ padding: 16 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 13, marginBottom: 12 }}>
+              <Text variant="bodySm" style={{ fontWeight: '600' }}>
+                Measurement unit
+              </Text>
+            </View>
+            <SegmentedControl
+              options={[
+                { value: 'meters', label: 'Meters' },
+                { value: 'feet', label: 'Feet' },
+              ]}
+              value={measurementUnit}
+              onChange={setMeasurementUnit}
             />
           </View>
           <RowDivider />
