@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { View, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -8,6 +9,7 @@ import CreditPill from '@/components/ui/CreditPill';
 import SectionHeader from '@/components/ui/SectionHeader';
 import ProjectCard from '@/components/project/ProjectCard';
 import EmptyState from '@/components/feedback/EmptyState';
+import ConfirmDeleteModal from '@/components/feedback/ConfirmDeleteModal';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -85,10 +87,19 @@ export default function HomeScreen({ navigation }) {
   const balance = useCreditsStore((s) => s.balance);
   const projects = useProjectsStore((s) => s.projects);
   const setActive = useProjectsStore((s) => s.setActive);
+  const deleteProject = useProjectsStore((s) => s.deleteProject);
+
+  // Project pending deletion (drives the confirmation modal). Null when closed.
+  const [pendingDelete, setPendingDelete] = useState(null);
 
   const openProject = (project) => {
     setActive(project.id);
     navigation.navigate(ROUTES.editor);
+  };
+
+  const confirmDelete = () => {
+    if (pendingDelete) deleteProject(pendingDelete.id);
+    setPendingDelete(null);
   };
 
   const startNew = () => navigation.navigate(ROUTES.newProject);
@@ -155,6 +166,7 @@ export default function HomeScreen({ navigation }) {
                   key={p.id}
                   project={p}
                   onPress={() => openProject(p)}
+                  onDelete={() => setPendingDelete(p)}
                   style={{ width: '47%' }}
                 />
               ))}
@@ -162,6 +174,19 @@ export default function HomeScreen({ navigation }) {
           </>
         )}
       </ScrollView>
+
+      <ConfirmDeleteModal
+        visible={!!pendingDelete}
+        title="Delete this project?"
+        message={
+          pendingDelete
+            ? `“${pendingDelete.name}” and all of its floor plans will be permanently removed. This can’t be undone.`
+            : ''
+        }
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDelete(null)}
+      />
     </SafeAreaView>
   );
 }

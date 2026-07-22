@@ -46,11 +46,11 @@ export default function CatalogDrawer({
   const [category, setCategory] = useState(initialCategory || 'Structure');
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Slide + fade animation. Mounted state keeps the panel in the tree during the
-  // exit animation so it can slide out before unmounting.
+  // Slide animation. Mounted state keeps the panel in the tree during the exit
+  // animation so it can slide out before unmounting. No dim backdrop — the panel
+  // simply glides over the canvas so the plan stays fully visible while placing.
   const [mounted, setMounted] = useState(visible);
   const slide = useRef(new Animated.Value(1)).current; // 0 = open, 1 = closed
-  const fade = useRef(new Animated.Value(0)).current;
   // While a drag is in flight the panel is slid away but must stay mounted, or the
   // row's pan gesture is destroyed mid-drag and the drop never lands.
   const dragActiveRef = useRef(dragActive);
@@ -61,43 +61,23 @@ export default function CatalogDrawer({
       setMounted(true);
       setMenuOpen(false);
       if (initialCategory) setCategory(initialCategory);
-      // Premium open: the dim backdrop fades in first, then the panel glides in
-      // from the right with a soft decelerating curve, slightly staggered so the
-      // motion reads as layered rather than a flat push.
-      Animated.parallel([
-        Animated.timing(fade, {
-          toValue: 1,
-          duration: 260,
-          easing: Easing.out(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(slide, {
-          toValue: 0,
-          duration: 420,
-          delay: 60,
-          easing: Easing.bezier(0.16, 1, 0.3, 1), // expo-out: fast start, gentle settle
-          useNativeDriver: true,
-        }),
-      ]).start();
+      // Open with a soft spring so the panel settles in naturally (no overshoot
+      // wobble) — the premium "glide and rest" feel.
+      Animated.spring(slide, {
+        toValue: 0,
+        stiffness: 190,
+        damping: 24,
+        mass: 1,
+        useNativeDriver: true,
+      }).start();
     } else {
-      // Premium close: the panel eases out to the right first, and the backdrop
-      // lingers a touch before fading so the panel appears to slide out from
-      // under the dim rather than everything vanishing at once.
-      Animated.parallel([
-        Animated.timing(slide, {
-          toValue: 1,
-          duration: 340,
-          easing: Easing.bezier(0.7, 0, 0.84, 0), // expo-in: gentle start, quick exit
-          useNativeDriver: true,
-        }),
-        Animated.timing(fade, {
-          toValue: 0,
-          duration: 300,
-          delay: 80,
-          easing: Easing.in(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]).start(({ finished }) => finished && !dragActiveRef.current && setMounted(false));
+      // Close with a quick, smooth ease-out — no fade, no stagger, just a clean exit.
+      Animated.timing(slide, {
+        toValue: 1,
+        duration: 240,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start(({ finished }) => finished && !dragActiveRef.current && setMounted(false));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
@@ -115,16 +95,12 @@ export default function CatalogDrawer({
   if (!mounted) return null;
 
   const translateX = slide.interpolate({ inputRange: [0, 1], outputRange: [0, panelW] });
-  // Panel fades from fully visible to transparent over the last stretch of the
-  // slide, softening the entrance/exit edges without hiding it mid-travel.
-  const panelOpacity = slide.interpolate({ inputRange: [0, 0.7, 1], outputRange: [1, 1, 0] });
 
   return (
     <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="box-none">
-      {/* Dim backdrop */}
-      <Animated.View style={{ ...StyleAbsolute, opacity: fade }}>
-        <Pressable style={{ flex: 1, backgroundColor: colors.overlay }} onPress={onClose} />
-      </Animated.View>
+      {/* Transparent tap-catcher — closes the panel when the canvas is tapped, but
+          adds no dim tint so the plan stays fully visible behind it. */}
+      <Pressable style={StyleAbsolute} onPress={onClose} />
 
       {/* Sliding panel */}
       <Animated.View
@@ -138,7 +114,6 @@ export default function CatalogDrawer({
             backgroundColor: colors.surface,
             borderTopLeftRadius: radius.xxl,
             borderBottomLeftRadius: radius.xxl,
-            opacity: panelOpacity,
             transform: [{ translateX }],
           },
           shadows.e3,
@@ -274,7 +249,7 @@ export default function CatalogDrawer({
             ) : null}
           </View>
 
-          {/* Item list — glyph + name + credit badge, vertical scroll */}
+          {/* Item list — shape tiles (tap to add · drag to place), vertical scroll */}
           <ScrollView
             style={{ flex: 1 }}
             showsVerticalScrollIndicator={false}
@@ -331,9 +306,9 @@ export default function CatalogDrawer({
   );
 }
 
-// A single catalog row. Tapping it drops the item at the plan center (fast repeat
-// placement); dragging it out of the sidebar hands the item to the editor, which
-// closes the drawer and lets the user drop it exactly where they release.
+// A single catalog tile — the tool's shape only, with a small free / paid tag in
+// the corner (no name). Tapping drops the item at the plan center (fast repeat
+// placement); dragging it out hands the item to the editor to drop precisely.
 function DrawerItemRow({ item, paid, cost, colors, radius, isDark, onAdd, onDragStart, onDragMove, onDragEnd }) {
   const [dragging, setDragging] = useState(false);
 
@@ -357,27 +332,23 @@ function DrawerItemRow({ item, paid, cost, colors, radius, isDark, onAdd, onDrag
       <Pressable
         onPress={() => onAdd(item)}
         style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 10,
-          padding: 8,
+          height: 86,
           borderRadius: radius.lg,
           backgroundColor: isDark ? '#211914' : '#F5EBE4',
-          opacity: dragging ? 0.4 : 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: dragging ? 0.35 : 1,
         }}
       >
-        <View style={{ width: 38, height: 38, alignItems: 'center', justifyContent: 'center' }}>
-          <FurnitureGlyph kind={item.kind} size={34} color={item.colors?.[0]} />
-        </View>
-        <Text
-          numberOfLines={1}
-          style={{ flex: 1, fontSize: 13, fontFamily: 'Manrope_600SemiBold', color: colors.ink2 }}
-        >
-          {item.name}
-        </Text>
-        {/* credit badge */}
+        {/* tool shape — larger, centered */}
+        <FurnitureGlyph kind={item.kind} size={54} color={item.colors?.[0]} />
+
+        {/* free / paid tag, tucked into the top-right corner */}
         <View
           style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
             flexDirection: 'row',
             alignItems: 'center',
             gap: 3,

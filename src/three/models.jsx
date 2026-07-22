@@ -851,12 +851,12 @@ function GenericBox({ w, d, h, color }) {
 // `points` (local meters, centered — from per-corner editing) win when present so
 // the 3D shell matches whatever the user reshaped in 2D; otherwise the kind's
 // normalized outline is scaled into the w×d footprint.
-function RoomShell({ w, d, h, kind, points, wallColor, floorColor }) {
+function RoomShell({ w, d, h, kind, points, wallThickness, wallColor, floorColor }) {
   const pts =
     Array.isArray(points) && points.length >= 3
       ? points.map((p) => [p.x, p.y])
       : (shapePolygon(kind) || [[0, 0], [1, 0], [1, 1], [0, 1]]).map(([nx, ny]) => [(nx - 0.5) * w, (ny - 0.5) * d]);
-  const t = 0.11;
+  const t = wallThickness && wallThickness > 0 ? wallThickness : 0.11;
 
   const floorShape = new Shape();
   pts.forEach(([x, z], i) => (i === 0 ? floorShape.moveTo(x, -z) : floorShape.lineTo(x, -z)));
@@ -1004,7 +1004,7 @@ function StructureGeometry({ item, w, d, h, wallColor, floorColor }) {
       // landing / low platform slab
       return <Box w={w} h={Math.max(h, 0.06)} d={d} y={Math.max(h, 0.06) / 2} color={color} rough={0.85} />;
     }
-    return <RoomShell w={w} d={d} h={h} kind={item.kind} points={item.shape?.points} wallColor={wallColor || color} floorColor={floorColor || shade(color, 1.1)} />;
+    return <RoomShell w={w} d={d} h={h} kind={item.kind} points={item.shape?.points} wallThickness={item.shape?.wallThickness} wallColor={wallColor || color} floorColor={floorColor || shade(color, 1.1)} />;
   }
   if (type === 'wall') return <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.9} />;
   if (type === 'column') return item.shape.round

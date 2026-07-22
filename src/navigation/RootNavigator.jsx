@@ -52,6 +52,8 @@ export default function RootNavigator() {
   const onboardingComplete = useSettingsStore((s) => s.onboardingComplete);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const hydrateProjects = useProjectsStore((s) => s.hydrate);
+  const flushPendingDeletes = useProjectsStore((s) => s.flushPendingDeletes);
+  const syncUnreconciled = useProjectsStore((s) => s.syncUnreconciled);
   const refreshCredits = useCreditsStore((s) => s.refresh);
   const hydrateCatalog = useCatalogStore((s) => s.hydrate);
   const hydrateTemplates = useTemplatesStore((s) => s.hydrate);
@@ -72,6 +74,16 @@ export default function RootNavigator() {
       hydrateTemplates();
     }
   }, [isAuthenticated, hydrateProjects, refreshCredits, hydrateCatalog, hydrateTemplates]);
+
+  // When connectivity returns: link any locally-created projects that never got
+  // a server id, then retry deletions queued while offline — so the live DB both
+  // gains the projects it's missing and drops the ones the user removed.
+  useEffect(() => {
+    if (isConnected && isAuthenticated) {
+      syncUnreconciled();
+      flushPendingDeletes();
+    }
+  }, [isConnected, isAuthenticated, syncUnreconciled, flushPendingDeletes]);
 
   const navTheme = {
     ...(isDark ? DarkTheme : DefaultTheme),

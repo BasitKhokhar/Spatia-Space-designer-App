@@ -8,13 +8,33 @@ import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import FurnitureGlyph from '@/components/graphics/FurnitureGlyph';
 import { itemDims } from '@/domain/floorplan';
-import { metersToFeet, formatLength } from '@/domain/units';
+import { metersToFeet, formatLength, formatWidth, inchesToMeters } from '@/domain/units';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { partsFor, isMountable } from '@/data/itemEditor';
 
 // Palette used for parts that don't declare their own swatches (the implicit
 // single-color "Color" part on un-curated items).
 const FALLBACK_SWATCHES = ['#BC5B3A', '#4E7C59', '#8A6250', '#3E4A5C', '#D8D2C4', '#F4F1EA', '#1B1A17'];
+
+// Small round +/- button used by the stepper rows.
+function StepBtn({ icon, onPress, accent }) {
+  const { colors } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        width: 34,
+        height: 34,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: accent ? colors.accent : colors.accentSoft,
+      }}
+    >
+      <Icon name={icon} size={18} color={accent ? colors.onAccent : colors.accent} strokeWidth={2.4} />
+    </Pressable>
+  );
+}
 
 // Bottom sheet to edit a placed item: per-part color, wall-mount height, and
 // transform (rotation / scale). Compact + tabbed with horizontal option rows so
@@ -62,6 +82,16 @@ const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
   };
 
   const setElevation = (m) => onChange({ elevation: Math.round(Math.min(maxEl, Math.max(0, m)) * 100) / 100 });
+
+  // Room-shell wall width (polygon structures only): editable thickness in meters
+  // reflected in both the 2D stroke and the 3D wall boxes.
+  const isShell = item.structure && item.shape?.type === 'polygon';
+  const wallThickness = item.shape?.wallThickness ?? 0.11;
+  const wallStep = unit === 'feet' ? inchesToMeters(1) : 0.01;
+  const setWallThickness = (m) => {
+    const clamped = Math.round(Math.min(0.5, Math.max(0.03, m)) * 1000) / 1000;
+    onChange({ shape: { ...item.shape, wallThickness: clamped } });
+  };
 
   const TABS = [
     { key: 'style', label: 'Style' },
@@ -306,8 +336,37 @@ const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
                   <Text variant="titleSm">{formatLength(row.v, unit)}</Text>
                 </View>
               ))}
+
+              {/* Wall width — only for room-shell shapes (square / L / U / T). */}
+              {isShell ? (
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    height: 48,
+                    paddingHorizontal: 14,
+                    borderRadius: radius.md,
+                    backgroundColor: colors.surface2,
+                  }}
+                >
+                  <Text variant="label" color="ink2">
+                    Wall width
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <StepBtn icon="minus" onPress={() => setWallThickness(wallThickness - wallStep)} />
+                    <Text variant="titleSm" style={{ minWidth: 54, textAlign: 'center' }}>
+                      {formatWidth(wallThickness, unit)}
+                    </Text>
+                    <StepBtn icon="plus" accent onPress={() => setWallThickness(wallThickness + wallStep)} />
+                  </View>
+                </View>
+              ) : null}
+
               <Text variant="caption" color="ink3" style={{ marginTop: 2 }}>
-                Resize on the canvas or use the Transform tab to change these.
+                {isShell
+                  ? 'Drag the corner arrows to reshape walls; drag an edge dot to move a whole wall.'
+                  : 'Resize on the canvas or use the Transform tab to change these.'}
               </Text>
             </View>
           )}

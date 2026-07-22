@@ -17,6 +17,41 @@ import { buildIdeaPlan, ideaById } from '@/data/starterIdeas';
 import { isRemote } from '@/services/api/client';
 import { projectsApi } from '@/services/api/projectsApi';
 
+// Resolve a project's numeric server id. `serverId` is the durable link stamped
+// at reconcile time; a numeric local `id` (from a server hydrate) also counts.
+// Returns null when the project has never been linked to a server row.
+function serverIdOf(p) {
+  if (!p) return null;
+  if (typeof p.serverId === 'number') return p.serverId;
+  if (typeof p.id === 'number') return p.id;
+  return null;
+}
+
+// Attach the server identity to a local project without clobbering local content
+// (name/plan/floors may hold edits newer than the server's initial copy). We only
+// need the numeric id + the stable clientId link from the server.
+function reconcile(p, saved) {
+  return { ...p, id: saved.id, serverId: saved.id, clientId: p.clientId ?? saved.clientId };
+}
+
+// Minimal idempotent-create payload for a project (keyed by its stable clientId).
+function createPayload(p) {
+  return {
+    clientId: p.clientId,
+    name: p.name,
+    roomType: p.roomType,
+    variant: p.variant,
+    width: p.plan?.width,
+    length: p.plan?.length,
+    plan: p.plan,
+  };
+}
+
+// Normalize a pending-delete entry (legacy entries were bare numeric ids) and a
+// stable key for de-duping the queue.
+const asDeleteEntry = (e) => (typeof e === 'number' ? { id: e } : e);
+const deleteKey = (e) => (e.id != null ? `id:${e.id}` : `cid:${e.clientId}`);
+
 // Projects store. When a backend URL is configured, projects are synced to the
 // server (hydrate on load; create/update/delete mirror to the API) while the
 // local cache keeps the app responsive and offline-capable. Create stays
@@ -28,10 +63,20 @@ export const useProjectsStore = create(
       projects: [],
       activeProjectId: null,
       exportsMade: 0,
+      // Server ids of projects the user deleted locally while the remote delete
+      // could not be reached (offline / server error). Retried by
+      // `flushPendingDeletes` once connectivity returns so the live DB doesn't
+      // keep projects the user already removed.
+      pendingDeletes: [],
 
       // Load the current user's projects from the server (no-op when local-first).
       hydrate: async () => {
         if (!isRemote()) return;
+        // Clear any deletes that were queued while offline before pulling the
+        // authoritative list (otherwise a deleted project could reappear), then
+        // backfill server ids for any locally-created projects that never linked.
+        await get().flushPendingDeletes();
+        await get().syncUnreconciled();
         try {
           const list = await projectsApi.list();
           set({ projects: list.map(ensureFloors) });
@@ -40,9 +85,41 @@ export const useProjectsStore = create(
         }
       },
 
+      // Backfill the server id for projects created locally whose create response
+      // was never received (they still carry a temp id + a clientId but no
+      // serverId). The idempotent backend create returns the existing row when
+      // the clientId already exists, so this never duplicates.
+      syncUnreconciled: async () => {
+        if (!isRemote()) return;
+        const pending = get().projects.filter((p) => serverIdOf(p) == null && p.clientId);
+        if (!pending.length) return;
+        await Promise.all(
+          pending.map((p) =>
+            projectsApi
+              .create(createPayload(p))
+              .then((saved) => {
+                if (typeof saved?.id !== 'number') return;
+                set((s) => ({
+                  projects: s.projects.map((q) => (q.clientId === p.clientId ? reconcile(q, saved) : q)),
+                  activeProjectId: s.activeProjectId === p.id ? saved.id : s.activeProjectId,
+                }));
+                // Push the authoritative local plan/floors now that we have an id.
+                projectsApi.update(saved.id, { plan: p.plan, floors: p.floors }).catch(() => {});
+              })
+              .catch(() => {
+                // stays unreconciled; retried on the next connect
+              })
+          )
+        );
+      },
+
       createProject: ({ name, roomType, width, length, variant = 0, seed = false, ideaId = null, template = null }) => {
         const now = Date.now();
         const tempId = uid('proj');
+        // Stable, client-generated key. Round-trips through the backend so this
+        // project can always be re-linked (and its server row deleted) even if
+        // the create response below is lost.
+        const clientId = uid('cid');
         // Sources, in priority: a premade design `template` (a full multi-floor
         // plan from the backend/bundled catalog), a bundled starter `idea` (a
         // furnished single plan), else a blank rectangle (optionally seeded with
@@ -85,6 +162,8 @@ export const useProjectsStore = create(
         const activeFloor = floors[activeIdx] || floors[0];
         const project = {
           id: tempId,
+          clientId,
+          serverId: null,
           name: name || 'Untitled Room',
           roomType: roomType || 'living',
           variant,
@@ -97,23 +176,25 @@ export const useProjectsStore = create(
         };
         set((s) => ({ projects: [project, ...s.projects], activeProjectId: project.id }));
 
-        // Persist to the server, then swap the temp id for the real one.
+        // Persist to the server, then link the local copy to the server row.
         if (isRemote()) {
           projectsApi
-            .create({ name: project.name, roomType: project.roomType, variant, width, length, plan: project.plan })
+            .create({ clientId, name: project.name, roomType: project.roomType, variant, width, length, plan: project.plan })
             .then((saved) => {
+              if (typeof saved?.id !== 'number') return;
               set((s) => ({
-                projects: s.projects.map((p) => (p.id === tempId ? { ...p, ...saved } : p)),
+                projects: s.projects.map((p) => (p.clientId === clientId ? reconcile(p, saved) : p)),
                 activeProjectId: s.activeProjectId === tempId ? saved.id : s.activeProjectId,
               }));
               // Multi-floor designs: create only stores the active plan, so push
               // the full floors array once the real id is known.
-              if (typeof saved?.id === 'number' && project.floors.length > 1) {
+              if (project.floors.length > 1) {
                 projectsApi.update(saved.id, { plan: project.plan, floors: project.floors }).catch(() => {});
               }
             })
             .catch(() => {
-              // leave the optimistic local copy in place
+              // Response lost / offline — stays unreconciled; syncUnreconciled()
+              // backfills the server id on the next successful connect.
             });
         }
         return project;
@@ -139,9 +220,10 @@ export const useProjectsStore = create(
             return { ...proj, floors, plan, updatedAt: Date.now() };
           }),
         }));
-        if (isRemote() && typeof id === 'number') {
+        if (isRemote()) {
           const proj = get().projects.find((p) => p.id === id);
-          projectsApi.update(id, { plan, floors: proj?.floors }).catch(() => {});
+          const sid = serverIdOf(proj);
+          if (sid != null) projectsApi.update(sid, { plan, floors: proj?.floors }).catch(() => {});
         }
       },
 
@@ -241,33 +323,107 @@ export const useProjectsStore = create(
 
       // Mirror the current floors array to the server (best-effort).
       _syncFloors: (projectId) => {
-        if (!isRemote() || typeof projectId !== 'number') return;
+        if (!isRemote()) return;
         const proj = get().projects.find((p) => p.id === projectId);
-        if (proj) projectsApi.update(projectId, { plan: proj.plan, floors: proj.floors }).catch(() => {});
+        const sid = serverIdOf(proj);
+        if (sid != null && proj) projectsApi.update(sid, { plan: proj.plan, floors: proj.floors }).catch(() => {});
       },
 
       renameProject: (id, name) => {
         set((s) => ({
           projects: s.projects.map((p) => (p.id === id ? { ...p, name, updatedAt: Date.now() } : p)),
         }));
-        if (isRemote() && typeof id === 'number') {
-          projectsApi.update(id, { name }).catch(() => {});
+        if (isRemote()) {
+          const proj = get().projects.find((p) => p.id === id);
+          const sid = serverIdOf(proj);
+          if (sid != null) projectsApi.update(sid, { name }).catch(() => {});
         }
       },
 
+      // Delete a project. The local copy is removed immediately (optimistic, so
+      // the UI updates offline too). The server row is then removed via whichever
+      // link is available:
+      //   • a known server id           → DELETE it (queue on failure);
+      //   • only a clientId, but online → resolve the id (idempotent create) then
+      //                                    DELETE, so a never-reconciled project
+      //                                    can't leave an orphan row behind;
+      //   • only a clientId, offline    → queue the clientId for a reconcile+delete
+      //                                    once connectivity returns.
       deleteProject: (id) => {
+        const proj = get().projects.find((p) => p.id === id) || null;
         set((s) => ({
           projects: s.projects.filter((p) => p.id !== id),
           activeProjectId: s.activeProjectId === id ? null : s.activeProjectId,
         }));
-        if (isRemote() && typeof id === 'number') {
-          projectsApi.remove(id).catch(() => {});
+        if (!isRemote() || !proj) return;
+
+        const sid = serverIdOf(proj);
+        if (sid != null) {
+          projectsApi.remove(sid).catch((e) => {
+            if (e?.status === 404) return; // already gone
+            get()._queueDelete({ id: sid });
+          });
+          return;
+        }
+        // No server id yet. Only projects that were ever pushed carry a clientId;
+        // without one there is nothing on the server to remove.
+        if (!proj.clientId) return;
+        get()
+          ._resolveAndRemove(proj)
+          .catch(() => get()._queueDelete({ clientId: proj.clientId, payload: createPayload(proj) }));
+      },
+
+      // Resolve a project's server id via the idempotent create, then delete it.
+      _resolveAndRemove: async (proj) => {
+        const saved = await projectsApi.create(createPayload(proj));
+        if (typeof saved?.id !== 'number') throw new Error('unresolved');
+        await projectsApi.remove(saved.id);
+      },
+
+      // Add an entry to the offline delete queue (de-duped by id/clientId).
+      _queueDelete: (entry) =>
+        set((s) => {
+          const q = (s.pendingDeletes || []).map(asDeleteEntry);
+          const key = deleteKey(entry);
+          return q.some((e) => deleteKey(e) === key) ? {} : { pendingDeletes: [...q, entry] };
+        }),
+
+      // Retry the server deletes queued while offline. Best-effort: each entry
+      // that succeeds (or is already gone) is dropped from the queue. clientId
+      // entries first resolve to a numeric id via the idempotent create.
+      flushPendingDeletes: async () => {
+        if (!isRemote()) return;
+        const queue = (get().pendingDeletes || []).map(asDeleteEntry);
+        if (!queue.length) return;
+        const settled = await Promise.all(
+          queue.map(async (e) => {
+            try {
+              let id = e.id;
+              if (id == null && e.clientId) {
+                const saved = await projectsApi.create({ clientId: e.clientId, ...(e.payload || {}) });
+                id = saved?.id;
+              }
+              if (typeof id !== 'number') return { e, done: false };
+              await projectsApi.remove(id);
+              return { e, done: true };
+            } catch (err) {
+              return { e, done: err?.status === 404 };
+            }
+          })
+        );
+        const doneKeys = new Set(settled.filter((r) => r.done).map((r) => deleteKey(r.e)));
+        if (doneKeys.size) {
+          set((s) => ({
+            pendingDeletes: (s.pendingDeletes || [])
+              .map(asDeleteEntry)
+              .filter((e) => !doneKeys.has(deleteKey(e))),
+          }));
         }
       },
 
       incrementExports: () => set((s) => ({ exportsMade: s.exportsMade + 1 })),
 
-      reset: () => set({ projects: [], activeProjectId: null, exportsMade: 0 }),
+      reset: () => set({ projects: [], activeProjectId: null, exportsMade: 0, pendingDeletes: [] }),
     }),
     {
       name: 'projects',

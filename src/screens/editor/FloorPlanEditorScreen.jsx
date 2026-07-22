@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { View, Pressable, ScrollView } from 'react-native';
+import { View, Pressable, ScrollView, TextInput } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import {
@@ -142,6 +142,7 @@ export default function FloorPlanEditorScreen({ navigation }) {
   const renameFloor = useProjectsStore((s) => s.renameFloor);
   const setActiveFloor = useProjectsStore((s) => s.setActiveFloor);
   const moveFloor = useProjectsStore((s) => s.moveFloor);
+  const renameProject = useProjectsStore((s) => s.renameProject);
 
   const unit = useSettingsStore((s) => s.measurementUnit);
 
@@ -160,6 +161,9 @@ export default function FloorPlanEditorScreen({ navigation }) {
   const [measure, setMeasure] = useState(null); // { a:{x,y}, b:{x,y}|null }
   const [outline, setOutline] = useState(null); // freeform perimeter draft: [{x,y}...]
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Inline project-name editing: tapping the header title swaps it for a field.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
   // Drag-to-place: a catalog item being dragged out of the sidebar. `ghost` holds
   // the item + live finger position (window coords) so we can render a preview
   // that follows the touch and drop it onto the plan where the user releases.
@@ -198,6 +202,17 @@ export default function FloorPlanEditorScreen({ navigation }) {
     setSelectedRoomId(null);
     setSelectedTextId(null);
   }, []);
+
+  // Begin / commit inline renaming of the active project from the header.
+  const startNameEdit = () => {
+    setNameDraft(project?.name || '');
+    setEditingName(true);
+  };
+  const commitNameEdit = () => {
+    const n = nameDraft.trim();
+    if (n && project && n !== project.name) renameProject(project.id, n);
+    setEditingName(false);
+  };
 
   const floorMat = floorMaterialById(plan?.materials?.floor);
   const wallStrokeColor = isDark ? '#4A4034' : '#7C6A55';
@@ -405,11 +420,16 @@ export default function FloorPlanEditorScreen({ navigation }) {
 
   // ---- gestures ----
   const drag = useRef({ mode: null });
+  const twoFinger = useRef(null); // two-finger pan session (canvas translate)
 
   const pan = useMemo(
     () =>
       Gesture.Pan()
         .runOnJS(true)
+        // Single finger only: a second finger means the user is pinching to
+        // zoom, so the pan (and any item selection/drag it would trigger) must
+        // never activate. This keeps two-finger zoom from grabbing a structure.
+        .maxPointers(1)
         .onBegin((e) => {
           const pt = screenToPlan(e.x, e.y);
           const r = refs.current;
@@ -423,8 +443,7 @@ export default function FloorPlanEditorScreen({ navigation }) {
               const base = { x: sel.x, y: sel.y, rotation: sel.rotation, mirrored: sel.mirrored };
               const startPoints = (structureLocalPoints(sel) || []).map((p) => ({ ...p }));
               if (Math.hypot(pt.x - ph.rotate.x, pt.y - ph.rotate.y) <= thr) {
-                pushHistory();
-                drag.current = { mode: 'rotate', id: sel.id, center: { x: sel.x, y: sel.y } };
+                drag.current = { mode: 'rotate', id: sel.id, center: { x: sel.x, y: sel.y }, hist: true };
                 return;
               }
               // Corners take priority over edges when both are near the finger.
@@ -434,8 +453,7 @@ export default function FloorPlanEditorScreen({ navigation }) {
                 if (dist <= thr && (!vBest || dist < vBest.dist)) vBest = { v, dist };
               }
               if (vBest) {
-                pushHistory();
-                drag.current = { mode: 'vertex', id: sel.id, index: vBest.v.index, base, startShape: sel.shape, startPoints };
+                drag.current = { mode: 'vertex', id: sel.id, index: vBest.v.index, base, startShape: sel.shape, startPoints, hist: true };
                 return;
               }
               let eBest = null;
@@ -444,21 +462,18 @@ export default function FloorPlanEditorScreen({ navigation }) {
                 if (dist <= thr && (!eBest || dist < eBest.dist)) eBest = { eh, dist };
               }
               if (eBest) {
-                pushHistory();
-                drag.current = { mode: 'edgeMove', id: sel.id, index: eBest.eh.index, base, startShape: sel.shape, startPoints, startLocal: structureLocal(base, pt) };
+                drag.current = { mode: 'edgeMove', id: sel.id, index: eBest.eh.index, base, startShape: sel.shape, startPoints, startLocal: structureLocal(base, pt), hist: true };
                 return;
               }
               if (Math.hypot(pt.x - ph.center.x, pt.y - ph.center.y) <= thr) {
-                pushHistory();
-                drag.current = { mode: 'drag', id: sel.id, startItem: { x: sel.x, y: sel.y } };
+                drag.current = { mode: 'drag', id: sel.id, startItem: { x: sel.x, y: sel.y }, hist: true };
                 return;
               }
             } else if (sel) {
               const h = handlePositions(sel);
               const thr = 26 / (ppm * r.zoom);
               if (Math.hypot(pt.x - h.rotate.x, pt.y - h.rotate.y) <= thr) {
-                pushHistory();
-                drag.current = { mode: 'rotate', id: sel.id, center: { x: sel.x, y: sel.y } };
+                drag.current = { mode: 'rotate', id: sel.id, center: { x: sel.x, y: sel.y }, hist: true };
                 return;
               }
               // Nearest resize handle within the tap threshold.
@@ -468,10 +483,9 @@ export default function FloorPlanEditorScreen({ navigation }) {
                 if (dist <= thr && (!best || dist < best.dist)) best = { hd, dist };
               }
               if (best) {
-                pushHistory();
                 // Center handle drags the whole item; corner/edge handles resize.
                 if (best.hd.id === 'c') {
-                  drag.current = { mode: 'drag', id: sel.id, startItem: { x: sel.x, y: sel.y } };
+                  drag.current = { mode: 'drag', id: sel.id, startItem: { x: sel.x, y: sel.y }, hist: true };
                   return;
                 }
                 const s = sel.scale ?? 1;
@@ -485,39 +499,40 @@ export default function FloorPlanEditorScreen({ navigation }) {
                   baseD: sel.d * s,
                   oldHalfW: best.hd.halfW,
                   oldHalfD: best.hd.halfD,
+                  hist: true,
                 };
                 return;
               }
             }
             const hit = hitTest(pt);
             if (hit) {
-              pushHistory();
-              drag.current = { mode: 'drag', id: hit.id, startItem: { x: hit.x, y: hit.y } };
-              setSelectedId(hit.id);
-              setSelectedRoomId(null);
-              setSelectedTextId(null);
+              drag.current = { mode: 'drag', id: hit.id, startItem: { x: hit.x, y: hit.y }, hist: true, sel: { id: hit.id } };
               return;
             }
             const textHit = hitTextEl(pt);
             if (textHit) {
-              pushHistory();
-              drag.current = { mode: 'dragText', id: textHit.id, startItem: { x: textHit.x, y: textHit.y } };
-              setSelectedTextId(textHit.id);
-              setSelectedId(null);
-              setSelectedRoomId(null);
+              drag.current = { mode: 'dragText', id: textHit.id, startItem: { x: textHit.x, y: textHit.y }, hist: true, sel: { textId: textHit.id } };
               return;
             }
             const roomHit = hitRoom(pt);
             if (roomHit) {
-              pushHistory();
-              drag.current = { mode: 'dragRoom', id: roomHit.id, startRoom: { x: roomHit.x, y: roomHit.y, w: roomHit.w, h: roomHit.h } };
-              setSelectedRoomId(roomHit.id);
-              setSelectedId(null);
-              setSelectedTextId(null);
+              drag.current = { mode: 'dragRoom', id: roomHit.id, startRoom: { x: roomHit.x, y: roomHit.y, w: roomHit.w, h: roomHit.h }, hist: true, sel: { roomId: roomHit.id } };
               return;
             }
           }
           drag.current = { mode: 'pan', startOffset: { ...r.offset } };
+        })
+        // Side-effects (history snapshot + selection) are deferred to activation
+        // so a two-finger pinch — which fires onBegin but never activates the
+        // single-finger pan — leaves selection and undo history untouched.
+        .onStart(() => {
+          const d = drag.current;
+          if (d.hist) pushHistory();
+          if (d.sel) {
+            setSelectedId(d.sel.id ?? null);
+            setSelectedRoomId(d.sel.roomId ?? null);
+            setSelectedTextId(d.sel.textId ?? null);
+          }
         })
         .onUpdate((e) => {
           const d = drag.current;
@@ -720,7 +735,29 @@ export default function FloorPlanEditorScreen({ navigation }) {
     []
   );
 
-  const gesture = Gesture.Simultaneous(pinch, Gesture.Race(pan, tap));
+  // Two-finger drag pans the canvas in any direction. It runs simultaneously
+  // with the pinch, so the user can zoom and move the view at the same time.
+  const twoFingerPan = useMemo(
+    () =>
+      Gesture.Pan()
+        .runOnJS(true)
+        .minPointers(2)
+        .maxPointers(2)
+        .onStart(() => {
+          twoFinger.current = { startOffset: { ...refs.current.offset } };
+        })
+        .onUpdate((e) => {
+          const s = twoFinger.current;
+          if (!s) return;
+          setOffset({ x: s.startOffset.x + e.translationX, y: s.startOffset.y + e.translationY });
+        })
+        .onEnd(() => {
+          twoFinger.current = null;
+        }),
+    []
+  );
+
+  const gesture = Gesture.Simultaneous(pinch, twoFingerPan, Gesture.Race(pan, tap));
 
   const selected = plan?.furniture.find((f) => f.id === selectedId) || null;
   const selectedRoom = selectedRoomId ? roomById(plan, selectedRoomId) : null;
@@ -875,8 +912,11 @@ export default function FloorPlanEditorScreen({ navigation }) {
         });
       }
       p.close();
+      // Wall stroke honors an editable thickness (meters) so shells can have thick
+      // or thin walls; falls back to a size-relative default.
+      const wallPx = shape.wallThickness ? Math.max(2.5, shape.wallThickness * ppm) : strokeW;
       els.push(<Path key="fill" path={p} color={fill} opacity={0.55} />);
-      els.push(<Path key="wall" path={p} color={stroke} style="stroke" strokeWidth={strokeW} strokeJoin="round" />);
+      els.push(<Path key="wall" path={p} color={stroke} style="stroke" strokeWidth={wallPx} strokeJoin="round" />);
     } else if (shape.type === 'wall') {
       els.push(<RoundedRect key="w" x={-hw} y={-hd} width={wPx} height={dPx} r={2} color={stroke} />);
     } else if (shape.type === 'column') {
@@ -1440,29 +1480,95 @@ export default function FloorPlanEditorScreen({ navigation }) {
             <Text style={{ fontSize: 12, fontWeight: '800', color: '#fff' }}>{measureLabel.text}</Text>
           </View>
         ) : null}
+
+        {/* Overall boundary totals — width centered on the top line, length on
+            the left line, so the running plan size is always visible. */}
+        {overallDims ? (
+          <>
+            <View
+              style={{
+                position: 'absolute',
+                left: (overallDims.x1 + overallDims.x2) / 2 - 40,
+                top: overallDims.topY - 22,
+                width: 80,
+                alignItems: 'center',
+              }}
+            >
+              <View style={{ backgroundColor: isDark ? '#221C16' : '#FFFFFF', borderWidth: 1, borderColor: colors.line, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 7 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.ink }}>{overallDims.widthText}</Text>
+              </View>
+            </View>
+            <View
+              style={{
+                position: 'absolute',
+                left: overallDims.leftX - 78,
+                top: (overallDims.y1 + overallDims.y2) / 2 - 11,
+                width: 72,
+                alignItems: 'flex-end',
+              }}
+            >
+              <View style={{ backgroundColor: isDark ? '#221C16' : '#FFFFFF', borderWidth: 1, borderColor: colors.line, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 7 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: colors.ink }}>{overallDims.heightText}</Text>
+              </View>
+            </View>
+          </>
+        ) : null}
       </View>
 
-      {/* Header — back · undo / redo · menu */}
+      {/* Header — back · editable project name · floors / all-tools menu */}
       <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
-          justifyContent: 'space-between',
           paddingHorizontal: 16,
           paddingTop: 8,
+          gap: 8,
         }}
       >
         <IconButton icon="chevron-left" onPress={() => navigation.goBack()} />
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <IconButton icon="undo" onPress={undo} tint={history.current.past.length ? colors.ink : colors.ink3} />
-          <IconButton icon="redo" onPress={redo} tint={history.current.future.length ? colors.ink : colors.ink3} />
+        {/* Project name — tap to edit inline */}
+        <View style={{ flex: 1 }}>
+          {editingName ? (
+            <TextInput
+              value={nameDraft}
+              onChangeText={setNameDraft}
+              onBlur={commitNameEdit}
+              onSubmitEditing={commitNameEdit}
+              autoFocus
+              selectTextOnFocus
+              returnKeyType="done"
+              placeholder="Project name"
+              placeholderTextColor={colors.ink3}
+              style={{
+                fontSize: 16,
+                fontFamily: 'Manrope_700Bold',
+                color: colors.ink,
+                paddingVertical: 6,
+                paddingHorizontal: 10,
+                borderRadius: radius.md,
+                borderWidth: 1,
+                borderColor: colors.accent,
+                backgroundColor: colors.surface,
+              }}
+            />
+          ) : (
+            <Pressable
+              onPress={startNameEdit}
+              hitSlop={8}
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 4 }}
+            >
+              <Text variant="titleSm" numberOfLines={1} style={{ flexShrink: 1 }}>
+                {project?.name || 'Untitled'}
+              </Text>
+              <Icon name="pencil" size={13} color={colors.ink3} strokeWidth={2} />
+            </Pressable>
+          )}
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <FloorsButton
             count={project?.floors?.length || 1}
             onPress={() => floorSheetRef.current?.present()}
           />
-          <IconButton icon="settings" onPress={() => navigation.navigate(ROUTES.settings)} />
           <IconButton icon="menu" onPress={() => setDrawerOpen(true)} />
         </View>
       </View>
@@ -1603,7 +1709,9 @@ export default function FloorPlanEditorScreen({ navigation }) {
           style={{ flex: 1 }}
           contentContainerStyle={{ paddingHorizontal: 6, gap: 6, alignItems: 'center' }}
         >
-          <FooterButton icon="plus" label="Add" active={drawerOpen} onPress={() => setDrawerOpen(true)} />
+          {/* Undo / redo lead the footer (dimmed when nothing to step through) */}
+          <FooterButton icon="undo" label="Undo" disabled={!history.current.past.length} onPress={undo} />
+          <FooterButton icon="redo" label="Redo" disabled={!history.current.future.length} onPress={redo} />
           <FooterDivider color={colors.line} />
           {EDITOR_TOOLS.map((t) => (
             <FooterButton
@@ -1614,6 +1722,7 @@ export default function FloorPlanEditorScreen({ navigation }) {
               onPress={() => setTool(t.id)}
             />
           ))}
+          <FooterButton icon="settings" label="Settings" onPress={() => navigation.navigate(ROUTES.settings)} />
           <FooterDivider color={colors.line} />
           <FooterButton icon="magnet" label="Snap" active={snapOn} onPress={() => setSnapOn((s) => !s)} />
           <FooterButton icon="ruler" label="Dims" active={showDims} onPress={() => setShowDims((s) => !s)} />
@@ -1644,26 +1753,22 @@ export default function FloorPlanEditorScreen({ navigation }) {
         }}
       />
 
-      {/* Drag-to-place ghost — follows the finger from the sidebar to the drop
-          point. Non-interactive so it never eats the underlying gesture. */}
+      {/* Drag-to-place ghost — just the tool shape following the finger (no card
+          or border). Non-interactive so it never eats the underlying gesture. */}
       {dragGhost ? (
         <View
           pointerEvents="none"
           style={{
             position: 'absolute',
-            left: dragGhost.x - canvasFrameRef.current.x - 34,
-            top: dragGhost.y - canvasFrameRef.current.y - 34,
-            width: 68,
-            height: 68,
-            borderRadius: 16,
+            left: dragGhost.x - canvasFrameRef.current.x - 33,
+            top: dragGhost.y - canvasFrameRef.current.y - 33,
+            width: 66,
+            height: 66,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: isDark ? 'rgba(33,25,20,0.92)' : 'rgba(255,255,255,0.94)',
-            borderWidth: 2,
-            borderColor: colors.accent,
           }}
         >
-          <FurnitureGlyph kind={dragGhost.item.kind} size={44} color={dragGhost.item.colors?.[0]} />
+          <FurnitureGlyph kind={dragGhost.item.kind} size={62} color={dragGhost.item.colors?.[0]} />
         </View>
       ) : null}
 
@@ -1805,14 +1910,16 @@ function FloorsButton({ count, onPress }) {
   );
 }
 
-// A footer tool/action pill: icon over a tiny label, highlighted when active.
-function FooterButton({ icon, label, active, accent, onPress }) {
+// A footer tool/action pill: icon over a tiny label, highlighted when active,
+// dimmed and unpressable when disabled.
+function FooterButton({ icon, label, active, accent, disabled, onPress }) {
   const { colors, radius } = useTheme();
   const bg = accent ? colors.accent : active ? colors.accentSoft : 'transparent';
-  const fg = accent ? '#fff' : active ? colors.accent : colors.ink2;
+  const fg = disabled ? colors.ink3 : accent ? '#fff' : active ? colors.accent : colors.ink2;
   return (
     <Pressable
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
       style={{
         minWidth: 56,
         height: 48,
@@ -1822,6 +1929,7 @@ function FooterButton({ icon, label, active, accent, onPress }) {
         alignItems: 'center',
         justifyContent: 'center',
         gap: 3,
+        opacity: disabled ? 0.4 : 1,
       }}
     >
       <Icon name={icon} size={19} color={fg} strokeWidth={1.9} />

@@ -5,8 +5,8 @@ import { request } from './client';
 export const projectsApi = {
   list: () => request('/projects'),
 
-  create: ({ name, roomType, variant, width, length, plan }) =>
-    request('/projects', { method: 'POST', body: { name, roomType, variant, width, length, plan } }),
+  create: ({ clientId, name, roomType, variant, width, length, plan }) =>
+    request('/projects', { method: 'POST', body: { clientId, name, roomType, variant, width, length, plan } }),
 
   get: (id) => request(`/projects/${id}`),
 
