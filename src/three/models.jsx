@@ -3,7 +3,7 @@ import { Shape, DoubleSide } from 'three';
 
 import { ModelItem } from './ModelItem';
 import { modelFor } from './modelRegistry';
-import { itemDims } from '@/domain/floorplan';
+import { itemDims, wallHit, pointAlongWall } from '@/domain/floorplan';
 import { shapePolygon } from '@/data/structure';
 import { pc } from '@/data/itemEditor';
 
@@ -847,11 +847,8 @@ function GenericBox({ w, d, h, color }) {
 
 // ---- structure builders ---------------------------------------------------
 
-// A room shell: polygon floor slab + a wall around every edge (all sides shown).
-// `points` (local meters, centered — from per-corner editing) win when present so
-// the 3D shell matches whatever the user reshaped in 2D; otherwise the kind's
-// normalized outline is scaled into the w×d footprint.
-function RoomShell({ w, d, h, kind, points, wallThickness, wallColor, floorColor }) {
+// A room shell: polygon floor slab + wall around every edge with door/window openings cut out.
+function RoomShell({ item, w, d, h, kind, points, wallThickness, wallColor, floorColor, plan }) {
   const pts =
     Array.isArray(points) && points.length >= 3
       ? points.map((p) => [p.x, p.y])
@@ -862,15 +859,86 @@ function RoomShell({ w, d, h, kind, points, wallThickness, wallColor, floorColor
   pts.forEach(([x, z], i) => (i === 0 ? floorShape.moveTo(x, -z) : floorShape.lineTo(x, -z)));
   floorShape.closePath();
 
+  // Collect all doors and windows to cut openings in the room shell walls
+  const allDoorsWindows = [];
+  if (plan) {
+    for (const f of plan.furniture || []) {
+      if (f.id === item?.id) continue;
+      const isDoor = f.shape?.type === 'door' || f.kind?.toLowerCase().includes('door') || f.catalogId?.includes('door');
+      const isWin = f.shape?.type === 'window' || f.kind?.toLowerCase().includes('window') || f.catalogId?.includes('window');
+      if (isDoor || isWin) {
+        allDoorsWindows.push({
+          x: f.x,
+          y: f.y,
+          width: itemDims(f).w || 0.9,
+          height: itemDims(f).h || 2.05,
+          kind: isWin ? 'window' : 'door',
+          sill: isWin ? (f.elevation ?? 0.85) : 0,
+        });
+      }
+    }
+    for (const o of plan.openings || []) {
+      const wall = plan.walls?.find((w) => w.id === o.wallId);
+      if (wall) {
+        const pt = pointAlongWall(wall, o.t);
+        allDoorsWindows.push({
+          x: pt.x,
+          y: pt.y,
+          width: o.width || 0.9,
+          height: o.height || 2.05,
+          kind: o.kind || 'door',
+          sill: o.sill || 0,
+        });
+      }
+    }
+  }
+
+  const itemX = item?.x ?? 0;
+  const itemY = item?.y ?? 0;
+
   const edges = [];
   for (let i = 0; i < pts.length; i++) {
     const a = pts[i];
     const b = pts[(i + 1) % pts.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 0.01;
+
+    const worldWall = {
+      x1: itemX + a[0],
+      y1: itemY + a[1],
+      x2: itemX + b[0],
+      y2: itemY + b[1],
+      thickness: t,
+    };
+
+    const edgeOps = [];
+    for (const dw of allDoorsWindows) {
+      const hit = wallHit(worldWall, { x: dw.x, y: dw.y });
+      if (hit.dist <= t / 2 + 0.6) {
+        const u = hit.t * len;
+        const u0 = Math.max(0, Math.min(len, u - dw.width / 2));
+        const u1 = Math.max(0, Math.min(len, u + dw.width / 2));
+        if (u1 - u0 > 0.01) {
+          edgeOps.push({ u0, u1, height: dw.height, sill: dw.sill, kind: dw.kind });
+        }
+      }
+    }
+    edgeOps.sort((p, q) => p.u0 - q.u0);
+
+    const spans = [];
+    let cursor = 0;
+    for (const op of edgeOps) {
+      if (op.u0 > cursor) spans.push([cursor, op.u0]);
+      cursor = Math.max(cursor, op.u1);
+    }
+    if (cursor < len) spans.push([cursor, len]);
+
     edges.push({
       mx: (a[0] + b[0]) / 2,
       mz: (a[1] + b[1]) / 2,
-      len: Math.hypot(b[0] - a[0], b[1] - a[1]),
+      len,
       ang: Math.atan2(b[1] - a[1], b[0] - a[0]),
+      spans,
+      ops: edgeOps,
     });
   }
 
@@ -881,10 +949,41 @@ function RoomShell({ w, d, h, kind, points, wallThickness, wallColor, floorColor
         <meshStandardMaterial color={floorColor} roughness={0.85} side={DoubleSide} />
       </mesh>
       {edges.map((e, i) => (
-        <mesh key={i} position={[e.mx, h / 2, e.mz]} rotation={[0, -e.ang, 0]} castShadow receiveShadow>
-          <boxGeometry args={[e.len + t, h, t]} />
-          <meshStandardMaterial color={wallColor} roughness={0.9} />
-        </mesh>
+        <group key={i} position={[e.mx, 0, e.mz]} rotation={[0, -e.ang, 0]}>
+          {e.spans.map(([u0, u1], j) => {
+            const spanW = u1 - u0;
+            if (spanW <= 0.001) return null;
+            const posX = (u0 + u1) / 2 - e.len / 2;
+            return (
+              <mesh key={`s${j}`} position={[posX, h / 2, 0]} castShadow receiveShadow>
+                <boxGeometry args={[spanW, h, t]} />
+                <meshStandardMaterial color={wallColor} roughness={0.9} />
+              </mesh>
+            );
+          })}
+          {e.ops.map((op, j) => {
+            const posX = (op.u0 + op.u1) / 2 - e.len / 2;
+            const opW = op.u1 - op.u0;
+            const top = op.sill + op.height;
+            const lintelH = Math.max(0, h - top);
+            return (
+              <group key={`o${j}`}>
+                {lintelH > 0.01 ? (
+                  <mesh position={[posX, top + lintelH / 2, 0]} castShadow receiveShadow>
+                    <boxGeometry args={[opW, lintelH, t]} />
+                    <meshStandardMaterial color={wallColor} roughness={0.9} />
+                  </mesh>
+                ) : null}
+                {op.sill > 0.01 ? (
+                  <mesh position={[posX, op.sill / 2, 0]} castShadow receiveShadow>
+                    <boxGeometry args={[opW, op.sill, t]} />
+                    <meshStandardMaterial color={wallColor} roughness={0.9} />
+                  </mesh>
+                ) : null}
+              </group>
+            );
+          })}
+        </group>
       ))}
     </group>
   );
@@ -935,7 +1034,7 @@ function Ramp({ w, d, h, color }) {
 }
 
 // A real door: frame (jambs + head) with a leaf swung ~30° open (or two panes).
-function Door({ w, d, h, shape, color, parts: colorParts }) {
+export function Door({ w, d, h, shape, color, parts: colorParts }) {
   const jamb = Math.min(0.08, w * 0.08);
   const t = Math.max(d, 0.12);
   const frame = pc(colorParts, 'frame', color);
@@ -996,7 +1095,7 @@ function Window({ w, d, h, shape, color, parts: colorParts, sill: sillProp }) {
 
 // ---- dispatch -------------------------------------------------------------
 
-function StructureGeometry({ item, w, d, h, wallColor, floorColor }) {
+function StructureGeometry({ item, w, d, h, wallColor, floorColor, plan }) {
   const type = item.shape?.type;
   const color = item.color;
   if (type === 'polygon') {
@@ -1004,7 +1103,7 @@ function StructureGeometry({ item, w, d, h, wallColor, floorColor }) {
       // landing / low platform slab
       return <Box w={w} h={Math.max(h, 0.06)} d={d} y={Math.max(h, 0.06) / 2} color={color} rough={0.85} />;
     }
-    return <RoomShell w={w} d={d} h={h} kind={item.kind} points={item.shape?.points} wallThickness={item.shape?.wallThickness} wallColor={wallColor || color} floorColor={floorColor || shade(color, 1.1)} />;
+    return <RoomShell item={item} w={w} d={d} h={h} kind={item.kind} points={item.shape?.points} wallThickness={item.shape?.wallThickness} wallColor={wallColor || color} floorColor={floorColor || shade(color, 1.1)} plan={plan} />;
   }
   if (type === 'wall') return <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.9} />;
   if (type === 'column') return item.shape.round
@@ -1110,12 +1209,12 @@ class ModelBoundary extends Component {
 // If the item's `kind` has a real .glb registered, load and auto-fit it; while
 // it streams in (or if it's missing/errors) we render the procedural build via
 // the Suspense fallback, so the scene never blocks or goes blank.
-export function PlacedItem({ item, cx, cz, wallColor, floorColor }) {
+export function PlacedItem({ item, cx, cz, wallColor, floorColor, plan }) {
   const { w, d, h } = itemDims(item);
   const rot = (-item.rotation * Math.PI) / 180;
 
   const procedural = item.structure ? (
-    <StructureGeometry item={item} w={w} d={d} h={h} wallColor={wallColor} floorColor={floorColor} />
+    <StructureGeometry item={item} w={w} d={d} h={h} wallColor={wallColor} floorColor={floorColor} plan={plan} />
   ) : (
     <FurnitureGeometry item={item} w={w} d={d} h={h} />
   );

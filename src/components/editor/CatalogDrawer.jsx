@@ -41,8 +41,8 @@ export default function CatalogDrawer({
     [allItems, categories]
   );
 
-  // Comfortable ~33% sidebar, clamped so it stays usable on small phones / tablets.
-  const panelW = Math.max(180, Math.min(300, screenW * 0.33));
+  // Compact ~18% sidebar (clamped between 115px and 200px so items remain usable).
+  const panelW = Math.max(115, Math.min(200, screenW * 0.18));
   const [category, setCategory] = useState(initialCategory || 'Structure');
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -112,83 +112,79 @@ export default function CatalogDrawer({
             right: 0,
             width: panelW,
             backgroundColor: colors.surface,
-            borderTopLeftRadius: radius.xxl,
-            borderBottomLeftRadius: radius.xxl,
+            borderTopLeftRadius: radius.xl,
+            borderBottomLeftRadius: radius.xl,
             transform: [{ translateX }],
           },
           shadows.e3,
         ]}
       >
         <SafeAreaView edges={['top', 'bottom']} style={{ flex: 1 }}>
-          {/* Panel header — title + live balance + close */}
+          {/* Panel header — credit count on left + close icon on right (no "Add" title) */}
           <View
             style={{
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'space-between',
-              paddingHorizontal: 14,
-              paddingTop: 14,
-              paddingBottom: 8,
-              gap: 8,
+              paddingHorizontal: 8,
+              paddingTop: 10,
+              paddingBottom: 6,
             }}
           >
-            <Text variant="title" numberOfLines={1} style={{ flex: 1 }}>
-              Add
-            </Text>
             <View
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 4,
                 paddingHorizontal: 8,
-                height: 28,
-                borderRadius: 14,
+                height: 26,
+                borderRadius: 13,
                 backgroundColor: colors.accentSoft,
               }}
             >
-              <Icon name="star" size={12} color={colors.accent} strokeWidth={2} />
-              <Text style={{ fontSize: 12, fontFamily: 'Manrope_700Bold', color: colors.accent }}>
+              <Icon name="star" size={11} color={colors.accent} strokeWidth={2} />
+              <Text style={{ fontSize: 11.5, fontFamily: 'Manrope_700Bold', color: colors.accent }}>
                 {subscriber ? '∞' : balance}
               </Text>
             </View>
             <Pressable
               onPress={onClose}
               style={{
-                width: 32,
-                height: 32,
-                borderRadius: 16,
+                width: 28,
+                height: 28,
+                borderRadius: 14,
                 backgroundColor: colors.surface2,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
-              <Icon name="close" size={15} color={colors.ink2} strokeWidth={2.2} />
+              <Icon name="close" size={14} color={colors.ink2} strokeWidth={2.2} />
             </Pressable>
           </View>
 
-          {/* Category dropdown — names only; Structure leads by default */}
-          <View style={{ paddingHorizontal: 12, zIndex: 20 }}>
+          {/* Category dropdown — full scrollable list of all categories */}
+          <View style={{ paddingHorizontal: 8, zIndex: 100, elevation: 10 }}>
             <Pressable
               onPress={() => setMenuOpen((o) => !o)}
               style={{
                 flexDirection: 'row',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                height: 42,
-                paddingHorizontal: 12,
-                borderRadius: radius.lg,
+                height: 38,
+                paddingHorizontal: 10,
+                borderRadius: radius.md,
                 borderWidth: 1.5,
                 borderColor: menuOpen ? colors.accent : colors.lineSoft,
                 backgroundColor: colors.surface2,
-                gap: 6,
+                gap: 4,
               }}
             >
-              <Text variant="titleSm" numberOfLines={1} style={{ flex: 1 }}>
+              <Text variant="titleSm" numberOfLines={1} style={{ flex: 1, fontSize: 12.5 }}>
                 {activeCategory}
               </Text>
               <Icon
                 name={menuOpen ? 'chevron-up' : 'chevron-down'}
-                size={16}
+                size={14}
                 color={colors.ink2}
                 strokeWidth={2.2}
               />
@@ -200,21 +196,26 @@ export default function CatalogDrawer({
                 style={[
                   {
                     position: 'absolute',
-                    top: 46,
-                    left: 12,
-                    right: 12,
-                    maxHeight: 320,
-                    borderRadius: radius.lg,
+                    top: 42,
+                    left: 8,
+                    right: 8,
+                    maxHeight: 360,
+                    borderRadius: radius.md,
                     borderWidth: 1,
                     borderColor: colors.line,
                     backgroundColor: colors.surface,
                     overflow: 'hidden',
-                    zIndex: 30,
+                    zIndex: 110,
+                    elevation: 12,
                   },
                   shadows.e3,
                 ]}
               >
-                <ScrollView showsVerticalScrollIndicator={false}>
+                <ScrollView
+                  nestedScrollEnabled={true}
+                  showsVerticalScrollIndicator={true}
+                  contentContainerStyle={{ paddingVertical: 4 }}
+                >
                   {itemCategories.map((cat) => {
                     const active = cat === activeCategory;
                     return (
@@ -225,16 +226,16 @@ export default function CatalogDrawer({
                           setMenuOpen(false);
                         }}
                         style={{
-                          height: 42,
+                          height: 38,
                           justifyContent: 'center',
-                          paddingHorizontal: 14,
+                          paddingHorizontal: 10,
                           backgroundColor: active ? colors.accentSoft : 'transparent',
                         }}
                       >
                         <Text
                           numberOfLines={1}
                           style={{
-                            fontSize: 14,
+                            fontSize: 12.5,
                             fontFamily: active ? 'Manrope_700Bold' : 'Manrope_500Medium',
                             color: active ? colors.accent : colors.ink2,
                           }}
@@ -253,10 +254,10 @@ export default function CatalogDrawer({
           <ScrollView
             style={{ flex: 1 }}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ padding: 12, paddingBottom: 24, gap: 8 }}
+            contentContainerStyle={{ padding: 8, paddingBottom: 16, gap: 8 }}
           >
             {items.length === 0 ? (
-              <Text variant="caption" color="ink3" style={{ padding: 16, textAlign: 'center' }}>
+              <Text variant="caption" color="ink3" style={{ padding: 12, textAlign: 'center', fontSize: 11 }}>
                 No items in this category yet.
               </Text>
             ) : (
@@ -287,18 +288,18 @@ export default function CatalogDrawer({
           <Pressable
             onPress={() => onViewDetails?.(activeCategory)}
             style={{
-              margin: 12,
-              height: 48,
-              borderRadius: radius.lg,
+              margin: 8,
+              height: 40,
+              borderRadius: radius.md,
               backgroundColor: colors.ink,
               flexDirection: 'row',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 8,
+              gap: 6,
             }}
           >
-            <Icon name="grid" size={16} color={colors.bg} strokeWidth={2} />
-            <Text style={{ color: colors.bg, fontFamily: 'Manrope_700Bold', fontSize: 15 }}>All Tools</Text>
+            <Icon name="grid" size={14} color={colors.bg} strokeWidth={2} />
+            <Text style={{ color: colors.bg, fontFamily: 'Manrope_700Bold', fontSize: 13 }}>All Tools</Text>
           </Pressable>
         </SafeAreaView>
       </Animated.View>
@@ -332,39 +333,39 @@ function DrawerItemRow({ item, paid, cost, colors, radius, isDark, onAdd, onDrag
       <Pressable
         onPress={() => onAdd(item)}
         style={{
-          height: 86,
-          borderRadius: radius.lg,
+          height: 74,
+          borderRadius: radius.md,
           backgroundColor: isDark ? '#211914' : '#F5EBE4',
           alignItems: 'center',
           justifyContent: 'center',
           opacity: dragging ? 0.35 : 1,
         }}
       >
-        {/* tool shape — larger, centered */}
-        <FurnitureGlyph kind={item.kind} size={54} color={item.colors?.[0]} />
+        {/* tool shape — centered */}
+        <FurnitureGlyph kind={item.kind} size={44} color={item.colors?.[0]} />
 
-        {/* free / paid tag, tucked into the top-right corner */}
+        {/* free / paid tag, tucked into top-right corner */}
         <View
           style={{
             position: 'absolute',
-            top: 6,
-            right: 6,
+            top: 5,
+            right: 5,
             flexDirection: 'row',
             alignItems: 'center',
-            gap: 3,
-            paddingHorizontal: 7,
-            height: 18,
-            borderRadius: 9,
+            gap: 2,
+            paddingHorizontal: 5,
+            height: 16,
+            borderRadius: 8,
             backgroundColor: paid ? colors.credit : isDark ? '#2C3A2E' : '#E7F0E7',
           }}
         >
           {paid ? (
             <>
-              <Icon name="star" size={9} color="#fff" strokeWidth={2.4} />
-              <Text style={{ fontSize: 10, fontFamily: 'Manrope_700Bold', color: '#fff' }}>{cost}</Text>
+              <Icon name="star" size={8} color="#fff" strokeWidth={2.4} />
+              <Text style={{ fontSize: 9, fontFamily: 'Manrope_700Bold', color: '#fff' }}>{cost}</Text>
             </>
           ) : (
-            <Text style={{ fontSize: 9.5, fontFamily: 'Manrope_700Bold', color: colors.success }}>FREE</Text>
+            <Text style={{ fontSize: 8.5, fontFamily: 'Manrope_700Bold', color: colors.success }}>FREE</Text>
           )}
         </View>
       </Pressable>

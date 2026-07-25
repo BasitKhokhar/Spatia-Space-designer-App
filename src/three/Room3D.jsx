@@ -3,7 +3,7 @@ import { useFrame, useThree } from '@react-three/fiber/native';
 import { Shape, DoubleSide } from 'three';
 
 import { LIGHTING } from './lighting';
-import { PlacedItem } from './models';
+import { PlacedItem, Door } from './models';
 import { floorMaterialById } from '@/data/materials';
 import { wallLength, itemWallOpenings } from '@/domain/floorplan';
 
@@ -202,6 +202,10 @@ function WallMesh({ wall, cx, cz, height, color, openings, outward }) {
                 <boxGeometry args={[w * 0.94, o.height * 0.94, t * 0.3]} />
                 <meshStandardMaterial color="#9fc4dc" transparent opacity={0.4} />
               </mesh>
+            ) : o.kind === 'door' && !o.id?.startsWith('item-open-') ? (
+              <group position={[localX, 0, 0]}>
+                <Door w={w} d={t} h={o.height} color={color} />
+              </group>
             ) : null}
           </group>
         );
@@ -319,7 +323,7 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
 
       {/* furniture & placed structure — realistic procedural models */}
       {plan.furniture.map((f) => (
-        <PlacedItem key={f.id} item={f} cx={cx} cz={cz} wallColor={wallColor} floorColor={floorMat.c3d} />
+        <PlacedItem key={f.id} item={f} cx={cx} cz={cz} wallColor={wallColor} floorColor={floorMat.c3d} plan={plan} />
       ))}
     </group>
   );

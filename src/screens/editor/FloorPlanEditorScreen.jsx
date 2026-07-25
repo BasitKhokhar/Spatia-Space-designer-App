@@ -38,6 +38,7 @@ import {
   addWall,
   addRoomRect,
   addOpening,
+  itemWallOpenings,
   nearestWallHit,
   wallLength,
   pointAlongWall,
@@ -62,9 +63,34 @@ import {
   structureLocalPoints,
   structureLocalBounds,
 } from '@/domain/floorplan';
-import { formatLength } from '@/domain/units';
+import { formatLength, formatArea } from '@/domain/units';
 import { floorMaterialById } from '@/data/materials';
 import { ROUTES } from '@/navigation/routes';
+
+// Shoelace formula: signed area of a polygon (local meter coords).
+// Always returns a positive value (absolute area in m²).
+function polygonAreaM2(pts) {
+  let area = 0;
+  const n = pts.length;
+  for (let i = 0; i < n; i++) {
+    const j = (i + 1) % n;
+    area += pts[i].x * pts[j].y;
+    area -= pts[j].x * pts[i].y;
+  }
+  return Math.abs(area) / 2;
+}
+
+// Area of a placed structure item in m².
+// Polygon shells (L, U, T, etc.) use the Shoelace formula on their exact
+// outline; rectangular items fall back to w × d.
+function structureAreaM2(f) {
+  if (isPolygonStructure(f)) {
+    const pts = structureLocalPoints(f);
+    if (pts && pts.length >= 3) return polygonAreaM2(pts);
+  }
+  const { w, d } = itemDims(f);
+  return w * d;
+}
 
 // World-space AABB of a placed item's footprint (polygon shells use their edited
 // vertices; everything else uses its rotated w×d box). Feeds the overall boundary.
@@ -821,6 +847,10 @@ export default function FloorPlanEditorScreen({ navigation }) {
       setSelectedId(newId);
       setSelectedRoomId(null);
       setSelectedTextId(null);
+      // Auto-open the placement sheet on the Measure tab so the user can
+      // immediately see and edit the item's dimensions after placing it.
+      setItemTab('measure');
+      setTimeout(() => sheetRef.current?.present(), 80);
     }
   };
 
@@ -970,7 +1000,11 @@ export default function FloorPlanEditorScreen({ navigation }) {
       ar.lineTo(wPx * 0.16, -hd * 0.35);
       els.push(<Path key="a" path={ar} color={stroke} style="stroke" strokeWidth={strokeW} />);
     } else if (shape.type === 'door') {
-      els.push(<Rect key="frame" x={-hw} y={-hd} width={wPx} height={dPx} color={fill} />);
+      // Open doorway gap so both sides of the opened door are see-through
+      els.push(<Rect key="gap" x={-hw} y={-hd} width={wPx} height={dPx} color={floorMat.c2d} />);
+      const jambW = Math.max(2.5, wPx * 0.05);
+      els.push(<Rect key="jambL" x={-hw} y={-hd} width={jambW} height={dPx} color={stroke} />);
+      els.push(<Rect key="jambR" x={hw - jambW} y={-hd} width={jambW} height={dPx} color={stroke} />);
       const swing = (hingeX, sign) => {
         const R = shape.leaves === 2 ? wPx / 2 : wPx;
         const leaf = Skia.Path.Make();
@@ -995,13 +1029,15 @@ export default function FloorPlanEditorScreen({ navigation }) {
         p.lineTo(hw, 1.5);
         els.push(<Path key="slide" path={p} color={colors.accent} style="stroke" strokeWidth={Math.max(3, strokeW)} />);
       } else if (shape.leaves === 2) {
-        swing(-hw, 1);
-        swing(hw, -1);
+        swing(-hw + jambW, 1);
+        swing(hw - jambW, -1);
       } else {
-        swing(-hw, 1);
+        swing(-hw + jambW, 1);
       }
     } else if (shape.type === 'window') {
-      els.push(<Rect key="frame" x={-hw} y={-hd} width={wPx} height={dPx} color={fill} />);
+      els.push(<Rect key="gap" x={-hw} y={-hd} width={wPx} height={dPx} color={floorMat.c2d} />);
+      const frameW = Math.max(2, wPx * 0.05);
+      els.push(<Rect key="frame" x={-hw} y={-hd} width={wPx} height={dPx} color={stroke} style="stroke" strokeWidth={frameW} />);
       const pane = Skia.Path.Make();
       pane.moveTo(-hw, 0);
       pane.lineTo(hw, 0);
@@ -1047,9 +1083,9 @@ export default function FloorPlanEditorScreen({ navigation }) {
   // Room groups (selectable rectangles derived from grouped walls).
   const rooms = roomGroups(plan);
 
-  // Overall footprint boundary — drawn as top/left dimension lines whose totals
-  // update live as structures are added, removed or reshaped.
-  const overall = showDims ? overallBounds(plan) : null;
+  // Overall footprint boundary — always visible (independent of showDims toggle).
+  // showDims controls wall-segment labels only; the boundary totals are permanent.
+  const overall = overallBounds(plan);
   let overallDims = null;
   if (overall && overall.w > 0.05 && overall.h > 0.05) {
     const OFF = 20; // px outside the boundary
@@ -1067,6 +1103,32 @@ export default function FloorPlanEditorScreen({ navigation }) {
       heightText: formatLength(overall.h, unit),
     };
   }
+
+  // Per-structure area labels — shown only while the Measure tool is active.
+  // Each label is positioned at the world-center of the item.
+  const structureAreaLabels = tool === 'measure'
+    ? (plan.furniture || []).filter((f) => f.structure).map((f) => {
+        const areaM2 = structureAreaM2(f);
+        const areaText = formatArea(Math.round(areaM2 * 10) / 10, unit);
+        // Center: for polygon structures use centroid of points; otherwise item origin.
+        let cx = f.x;
+        let cy = f.y;
+        if (isPolygonStructure(f)) {
+          const pts = structureLocalPoints(f);
+          if (pts && pts.length >= 3) {
+            // Centroid in local frame, then transform to world.
+            const lx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+            const ly = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+            const rad = (f.rotation * Math.PI) / 180;
+            const mirror = f.mirrored ? -1 : 1;
+            cx = f.x + mirror * lx * Math.cos(rad) - ly * Math.sin(rad);
+            cy = f.y + mirror * lx * Math.sin(rad) + ly * Math.cos(rad);
+          }
+        }
+        const screen = planToScreen(cx, cy);
+        return { id: f.id, sx: screen.sx, sy: screen.sy, text: areaText };
+      })
+    : [];
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: isDark ? '#161310' : '#F0EBE2' }} edges={['top']}>
@@ -1141,7 +1203,12 @@ export default function FloorPlanEditorScreen({ navigation }) {
               })}
 
               {/* openings (gaps + door swing / window pane) */}
-              {plan.openings.map((o) => {
+              {[
+                ...(plan.openings || []),
+                ...itemWallOpenings(plan).filter(
+                  (io) => !plan.openings?.some((o) => o.wallId === io.wallId && Math.abs(o.t - io.t) < 0.05)
+                ),
+              ].map((o) => {
                 const wall = plan.walls.find((w) => w.id === o.wallId);
                 if (!wall) return null;
                 const L = wallLength(wall) || 1;
@@ -1513,6 +1580,34 @@ export default function FloorPlanEditorScreen({ navigation }) {
             </View>
           </>
         ) : null}
+        {/* Structure area labels — centered on each structure item, visible only
+            while the Measure tool is active so they don't clutter the canvas
+            during normal editing. */}
+        {structureAreaLabels.map((lbl) => (
+          <View
+            key={lbl.id}
+            style={{
+              position: 'absolute',
+              left: lbl.sx - 52,
+              top: lbl.sy - 14,
+              width: 104,
+              alignItems: 'center',
+            }}
+          >
+            <View
+              style={{
+                backgroundColor: isDark ? 'rgba(20,14,10,0.88)' : 'rgba(255,255,255,0.93)',
+                borderWidth: 1.5,
+                borderColor: colors.accent,
+                paddingHorizontal: 10,
+                paddingVertical: 4,
+                borderRadius: 9,
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '800', color: colors.accent }}>{lbl.text}</Text>
+            </View>
+          </View>
+        ))}
       </View>
 
       {/* Header — back · editable project name · floors / all-tools menu */}

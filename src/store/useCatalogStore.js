@@ -68,13 +68,17 @@ export const useCatalogStore = create(
 
 // ── Pure selectors (operate on store values passed in) ──────────────────────
 
-// Category names that actually contain items, in the catalog's sort order.
+// Category names in the catalog's sort order (includes all available categories).
 export function categoryNamesWithItems(items, categories) {
-  const present = new Set(items.map((it) => it.category));
-  return [...categories]
-    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-    .map((c) => c.name)
-    .filter((name) => present.has(name));
+  const sorted = [...categories].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)).map((c) => c.name);
+  const categorySet = new Set(sorted);
+  items.forEach((it) => {
+    if (it.category && !categorySet.has(it.category)) {
+      sorted.push(it.category);
+      categorySet.add(it.category);
+    }
+  });
+  return sorted;
 }
 
 // Items in a category, cheapest first (matches the old catalogByCategory()).

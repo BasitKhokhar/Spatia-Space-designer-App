@@ -1,5 +1,5 @@
-import { forwardRef, useMemo, useState } from 'react';
-import { View, Pressable, ScrollView } from 'react-native';
+import { forwardRef, useMemo, useState, useEffect } from 'react';
+import { View, Pressable, ScrollView, TextInput } from 'react-native';
 import { BottomSheetModal, BottomSheetView } from '@gorhom/bottom-sheet';
 
 import Text from '@/components/ui/Text';
@@ -8,7 +8,7 @@ import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import FurnitureGlyph from '@/components/graphics/FurnitureGlyph';
 import { itemDims } from '@/domain/floorplan';
-import { metersToFeet, formatLength, formatWidth, inchesToMeters } from '@/domain/units';
+import { metersToFeet, feetToMeters, formatLength, formatWidth, inchesToMeters } from '@/domain/units';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { partsFor, isMountable } from '@/data/itemEditor';
 
@@ -45,11 +45,18 @@ const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
 ) {
   const { colors, radius } = useTheme();
   const unit = useSettingsStore((s) => s.measurementUnit);
-  const snapPoints = useMemo(() => ['52%'], []);
+  const snapPoints = useMemo(() => ['55%'], []);
   const [tabState, setTabState] = useState('style');
   const tab = tabProp ?? tabState;
   const setTab = onTabChange ?? setTabState;
   const [partKey, setPartKey] = useState(null);
+
+  // Editable dimension draft strings — kept as text while editing, committed on blur.
+  const [dimDraft, setDimDraft] = useState({ w: null, d: null, h: null });
+
+  useEffect(() => {
+    setDimDraft({ w: null, d: null, h: null });
+  }, [item?.id]);
 
   if (!item) {
     return (
@@ -314,28 +321,119 @@ const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
           {activeTab === 'measure' && (
             <View style={{ gap: 10 }}>
               {[
-                { label: 'Width', v: dims.w },
-                { label: 'Depth', v: dims.d },
-                { label: 'Height', v: dims.h },
-              ].map((row) => (
-                <View
-                  key={row.label}
-                  style={{
-                    flexDirection: 'row',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    height: 44,
-                    paddingHorizontal: 14,
-                    borderRadius: radius.md,
-                    backgroundColor: colors.surface2,
-                  }}
-                >
-                  <Text variant="label" color="ink2">
-                    {row.label}
-                  </Text>
-                  <Text variant="titleSm">{formatLength(row.v, unit)}</Text>
-                </View>
-              ))}
+                {
+                  label: 'Width',
+                  key: 'w',
+                  current: dims.w,
+                  commit: (meters) => {
+                    const currentW = dims.w;
+                    if (isShell && Array.isArray(item.shape?.points) && currentW > 0) {
+                      const scaleX = Math.max(0.1, meters) / currentW;
+                      const newPoints = item.shape.points.map((p) => ({ x: p.x * scaleX, y: p.y }));
+                      onChange({ shape: { ...item.shape, points: newPoints } });
+                    } else {
+                      const s = item.scale ?? 1;
+                      const base = (item.w || 1) * s;
+                      if (base > 0) onChange({ sx: Math.max(0.05, meters) / base });
+                    }
+                  },
+                },
+                {
+                  label: 'Depth',
+                  key: 'd',
+                  current: dims.d,
+                  commit: (meters) => {
+                    const currentD = dims.d;
+                    if (isShell && Array.isArray(item.shape?.points) && currentD > 0) {
+                      const scaleY = Math.max(0.1, meters) / currentD;
+                      const newPoints = item.shape.points.map((p) => ({ x: p.x, y: p.y * scaleY }));
+                      onChange({ shape: { ...item.shape, points: newPoints } });
+                    } else {
+                      const s = item.scale ?? 1;
+                      const base = (item.d || 1) * s;
+                      if (base > 0) onChange({ sy: Math.max(0.05, meters) / base });
+                    }
+                  },
+                },
+                {
+                  label: 'Height',
+                  key: 'h',
+                  current: dims.h,
+                  commit: (meters) => {
+                    const s = item.scale ?? 1;
+                    onChange({ h: Math.max(0.05, meters) / (s || 1) });
+                  },
+                },
+              ].map((row) => {
+                const draftVal = dimDraft[row.key];
+                const displayStr = draftVal !== null
+                  ? draftVal
+                  : unit === 'feet'
+                    ? metersToFeet(row.current).toFixed(2)
+                    : row.current.toFixed(2);
+
+                const commitInput = (val) => {
+                  if (val === null || val === undefined) return;
+                  const num = parseFloat(val);
+                  if (!isNaN(num) && num > 0) {
+                    const meters = unit === 'feet' ? feetToMeters(num) : num;
+                    row.commit(meters);
+                  }
+                  setDimDraft((d) => ({ ...d, [row.key]: null }));
+                };
+
+                return (
+                  <View
+                    key={row.label}
+                    style={{
+                      flexDirection: 'row',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      height: 50,
+                      paddingHorizontal: 14,
+                      borderRadius: radius.md,
+                      backgroundColor: colors.surface2,
+                      borderWidth: dimDraft[row.key] !== null ? 1.5 : 0,
+                      borderColor: colors.accent,
+                    }}
+                  >
+                    <Text variant="label" color="ink2">
+                      {row.label}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <TextInput
+                        value={displayStr}
+                        onChangeText={(t) => setDimDraft((d) => ({ ...d, [row.key]: t }))}
+                        onFocus={() =>
+                          setDimDraft((d) => ({
+                            ...d,
+                            [row.key]: unit === 'feet'
+                              ? metersToFeet(row.current).toFixed(2)
+                              : row.current.toFixed(2),
+                          }))
+                        }
+                        onBlur={() => commitInput(dimDraft[row.key])}
+                        onSubmitEditing={() => commitInput(dimDraft[row.key])}
+                        keyboardType="decimal-pad"
+                        returnKeyType="done"
+                        selectTextOnFocus
+                        style={{
+                          fontSize: 15,
+                          fontFamily: 'Manrope_700Bold',
+                          color: colors.ink,
+                          minWidth: 60,
+                          textAlign: 'right',
+                          paddingVertical: 4,
+                          paddingHorizontal: 6,
+                        }}
+                      />
+                      <Text variant="bodySm" color="ink3">
+                        {unit === 'feet' ? 'ft' : 'm'}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              })}
 
               {/* Wall width — only for room-shell shapes (square / L / U / T). */}
               {isShell ? (
@@ -366,7 +464,7 @@ const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
               <Text variant="caption" color="ink3" style={{ marginTop: 2 }}>
                 {isShell
                   ? 'Drag the corner arrows to reshape walls; drag an edge dot to move a whole wall.'
-                  : 'Resize on the canvas or use the Transform tab to change these.'}
+                  : 'Tap a value above to edit. Changes apply immediately.'}
               </Text>
             </View>
           )}

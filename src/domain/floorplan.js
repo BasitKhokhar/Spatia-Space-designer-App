@@ -356,24 +356,27 @@ export function removeOpening(plan, id) {
 const ITEM_OPENING_KIND = { door: 'door', window: 'window' };
 
 export function itemWallOpenings(plan) {
+  if (!plan) return [];
   const out = [];
   for (const f of plan.furniture || []) {
-    if (!f.structure) continue;
-    const kind = ITEM_OPENING_KIND[f.shape?.type];
+    const shapeType = f.shape?.type;
+    const kind =
+      ITEM_OPENING_KIND[shapeType] ||
+      (f.kind?.toLowerCase().includes('door') || f.catalogId?.includes('door')
+        ? 'door'
+        : f.kind?.toLowerCase().includes('window') || f.catalogId?.includes('window')
+        ? 'window'
+        : null);
     if (!kind) continue;
+
     const { w, h } = itemDims(f);
-    const rad = ((f.rotation || 0) * Math.PI) / 180;
-    const dir = { x: Math.cos(rad), y: Math.sin(rad) }; // item's width axis
     let best = null;
-    for (const wall of plan.walls) {
-      const L = wallLength(wall) || 1;
-      const wdir = { x: (wall.x2 - wall.x1) / L, y: (wall.y2 - wall.y1) / L };
-      // must be roughly aligned with the wall to be "in" it (|cos| ~ 1)
-      if (Math.abs(dir.x * wdir.x + dir.y * wdir.y) < 0.85) continue;
+    for (const wall of plan.walls || []) {
       const { t, dist } = wallHit(wall, { x: f.x, y: f.y });
-      const maxDist = (wall.thickness || DEFAULT_WALL_THICKNESS) / 2 + 0.35;
+      const maxDist = (wall.thickness || DEFAULT_WALL_THICKNESS) / 2 + 0.5;
       if (dist > maxDist) continue;
-      if (!best || dist < best.dist) best = { wall, t };
+      const clampedT = Math.max(0.05, Math.min(0.95, t));
+      if (!best || dist < best.dist) best = { wall, t: clampedT };
     }
     if (!best) continue;
     out.push({
@@ -383,9 +386,6 @@ export function itemWallOpenings(plan) {
       t: best.t,
       width: w,
       height: h,
-      // windows sit on a sill (adjustable via the item's `elevation`; older
-      // items without one default to 0.85 m); doors run to the floor. The item's
-      // own frame overlaps these edges, so a small mismatch reads as trim.
       sill: kind === 'window' ? (f.elevation ?? 0.85) : 0,
     });
   }
