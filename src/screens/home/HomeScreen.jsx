@@ -175,7 +175,7 @@ export default function HomeScreen({ navigation }) {
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
-            paddingHorizontal: 24,
+            paddingHorizontal: 12,
             paddingTop: 8,
           }}
         >
@@ -193,7 +193,7 @@ export default function HomeScreen({ navigation }) {
 
         {/* AI first, above New Project: it's the feature most people won't
             discover on their own, and the fastest route to a finished plan. */}
-        <View style={{ paddingHorizontal: 24 }}>
+        <View style={{ paddingHorizontal: 12 }}>
           <AiSpotlight onPress={startAi} inProgress={!!aiJobId} style={{ marginTop: 22 }} />
           <NewProjectBanner onPress={startNew} />
         </View>
