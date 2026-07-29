@@ -9,7 +9,7 @@ import { useProjectsStore } from '@/store/useProjectsStore';
 import { ROUTES } from '@/navigation/routes';
 
 // A tappable choice card. Tapping runs `onPress` directly (no separate Continue).
-function ChoiceRow({ icon, iconFill, title, subtitle, onPress }) {
+function ChoiceRow({ icon, iconFill, title, subtitle, onPress, badge }) {
   const { colors, radius } = useTheme();
   return (
     <Pressable
@@ -38,7 +38,23 @@ function ChoiceRow({ icon, iconFill, title, subtitle, onPress }) {
         {icon}
       </View>
       <View style={{ flex: 1 }}>
-        <Text variant="titleSm">{title}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Text variant="titleSm">{title}</Text>
+          {badge ? (
+            <View
+              style={{
+                paddingHorizontal: 7,
+                paddingVertical: 2,
+                borderRadius: 6,
+                backgroundColor: colors.accent,
+              }}
+            >
+              <Text variant="label" color="onAccent" style={{ fontSize: 10 }}>
+                {badge}
+              </Text>
+            </View>
+          ) : null}
+        </View>
         <Text variant="bodySm" color="ink2" style={{ marginTop: 3 }}>
           {subtitle}
         </Text>
@@ -61,6 +77,9 @@ export default function NewProjectStartScreen({ navigation }) {
   // Try Our Creative Designs → pick a category, then a premade design.
   const browseDesigns = () => navigation.navigate(ROUTES.category);
 
+  // Design with AI → answer a short brief, get a furnished plan built for it.
+  const designWithAi = () => navigation.navigate(ROUTES.aiWizard);
+
   return (
     <Screen>
       <HeaderBar title="New Project" onBack={() => navigation.goBack()} />
@@ -69,6 +88,16 @@ export default function NewProjectStartScreen({ navigation }) {
           <Text variant="h2">How do you want{'\n'}to start?</Text>
 
           <View style={{ gap: 14, marginTop: 24 }}>
+            {/* Listed first: it's the fastest route from nothing to a finished
+                plan, and the one most people should try. */}
+            <ChoiceRow
+              onPress={designWithAi}
+              iconFill={colors.ink}
+              icon={<Icon name="star" size={26} color="#fff" strokeWidth={2} />}
+              title="Design With AI"
+              badge="NEW"
+              subtitle="Answer a few questions — get a fully furnished plan in a minute."
+            />
             <ChoiceRow
               onPress={startBlank}
               iconFill={colors.accentSoft}

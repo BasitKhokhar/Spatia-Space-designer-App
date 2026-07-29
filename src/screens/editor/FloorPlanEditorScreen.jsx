@@ -19,6 +19,7 @@ import ItemPlacementSheet from '@/components/sheets/ItemPlacementSheet';
 import RoomStyleSheet from '@/components/sheets/RoomStyleSheet';
 import RoomSettingsSheet from '@/components/sheets/RoomSettingsSheet';
 import TextSettingsSheet from '@/components/sheets/TextSettingsSheet';
+import AiSummarySheet from '@/components/sheets/AiSummarySheet';
 import CatalogDrawer from '@/components/editor/CatalogDrawer';
 import { EDITOR_TOOLS } from '@/data/editorTools';
 import FloorSwitcher from '@/components/editor/FloorSwitcher';
@@ -157,7 +158,7 @@ function overallBounds(plan) {
   return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
 }
 
-export default function FloorPlanEditorScreen({ navigation }) {
+export default function FloorPlanEditorScreen({ navigation, route }) {
   const { colors, radius, isDark, shadows } = useTheme();
   const insets = useSafeAreaInsets();
   const project = useActiveProject();
@@ -203,7 +204,20 @@ export default function FloorPlanEditorScreen({ navigation }) {
   const roomSheetRef = useRef(null);
   const textSheetRef = useRef(null);
   const floorSheetRef = useRef(null);
+  const aiSummarySheetRef = useRef(null);
   const history = useRef({ past: [], future: [] });
+
+  // An AI-generated plan arrives here with a summary in tow. Present it once so
+  // the user gets the room breakdown and the reasoning without a separate result
+  // screen standing between them and their design.
+  const aiSummary = route?.params?.aiSummary || null;
+  const aiSummaryShown = useRef(false);
+  useEffect(() => {
+    if (!aiSummary || aiSummaryShown.current) return;
+    aiSummaryShown.current = true;
+    const t = setTimeout(() => aiSummarySheetRef.current?.present(), 450);
+    return () => clearTimeout(t);
+  }, [aiSummary]);
 
   // Live refs so gesture handlers (runOnJS) read current values.
   const refs = useRef({});
@@ -1910,6 +1924,15 @@ export default function FloorPlanEditorScreen({ navigation }) {
           textSheetRef.current?.dismiss();
         }}
         onDone={() => textSheetRef.current?.dismiss()}
+      />
+      <AiSummarySheet
+        ref={aiSummarySheetRef}
+        summary={aiSummary}
+        onRegenerate={() => {
+          aiSummarySheetRef.current?.dismiss();
+          navigation.navigate(ROUTES.aiWizard);
+        }}
+        onDone={() => aiSummarySheetRef.current?.dismiss()}
       />
       <RoomStyleSheet
         ref={styleSheetRef}

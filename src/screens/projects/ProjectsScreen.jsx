@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, ScrollView } from 'react-native';
+import { useMemo, useState } from 'react';
+import { View, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Text from '@/components/ui/Text';
@@ -11,14 +11,21 @@ import { useTheme } from '@/theme/useTheme';
 import { useProjectsStore } from '@/store/useProjectsStore';
 import { ROUTES } from '@/navigation/routes';
 
+// Every project the user has, newest edit first. Home only shows the latest few
+// — this is the complete list.
 export default function ProjectsScreen({ navigation }) {
-  const { colors } = useTheme();
+  const { colors, radius, shadows } = useTheme();
   const projects = useProjectsStore((s) => s.projects);
   const setActive = useProjectsStore((s) => s.setActive);
   const deleteProject = useProjectsStore((s) => s.deleteProject);
 
   // Project pending deletion (drives the confirmation modal). Null when closed.
   const [pendingDelete, setPendingDelete] = useState(null);
+
+  const sorted = useMemo(
+    () => [...projects].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
+    [projects]
+  );
 
   const open = (p) => {
     setActive(p.id);
@@ -30,18 +37,58 @@ export default function ProjectsScreen({ navigation }) {
     setPendingDelete(null);
   };
 
+  const startNew = () => navigation.navigate(ROUTES.newProject);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
-      <View style={{ paddingHorizontal: 24, paddingTop: 8 }}>
-        <Text variant="h2">Projects</Text>
+      <View
+        style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: 24,
+          paddingTop: 8,
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Text variant="h2">Projects</Text>
+          <Text variant="bodySm" color="ink3" style={{ marginTop: 4 }}>
+            {projects.length
+              ? `${projects.length} ${projects.length === 1 ? 'design' : 'designs'} · newest first`
+              : 'Nothing saved yet'}
+          </Text>
+        </View>
+        <Pressable
+          onPress={startNew}
+          style={({ pressed }) => [
+            {
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 7,
+              paddingLeft: 12,
+              paddingRight: 15,
+              height: 42,
+              borderRadius: radius.pill,
+              backgroundColor: colors.accent,
+              opacity: pressed ? 0.9 : 1,
+            },
+            shadows.accent,
+          ]}
+        >
+          <Icon name="plus" size={17} color={colors.onAccent} strokeWidth={2.4} />
+          <Text variant="label" color="onAccent">
+            New
+          </Text>
+        </Pressable>
       </View>
+
       {projects.length === 0 ? (
         <EmptyState
           title="No projects yet"
-          message="Create your first floor plan from the Home tab."
+          message="Start a floor plan from scratch, pick a ready-made design, or let AI draw one for you."
           actionTitle="New Project"
           actionIcon="arrow-right"
-          onAction={() => navigation.navigate(ROUTES.newProject)}
+          onAction={startNew}
           illustration={<Icon name="grid" size={80} color={colors.line} strokeWidth={1.4} />}
           style={{ marginTop: 40 }}
         />
@@ -53,11 +100,11 @@ export default function ProjectsScreen({ navigation }) {
               flexWrap: 'wrap',
               justifyContent: 'space-between',
               paddingHorizontal: 24,
-              marginTop: 18,
+              marginTop: 20,
               gap: 14,
             }}
           >
-            {projects.map((p) => (
+            {sorted.map((p) => (
               <ProjectCard
                 key={p.id}
                 project={p}

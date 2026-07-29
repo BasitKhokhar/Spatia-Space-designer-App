@@ -32,6 +32,8 @@ import CategoryScreen from '@/screens/project/CategoryScreen';
 import StarterIdeasScreen from '@/screens/project/StarterIdeasScreen';
 import RoomTypeScreen from '@/screens/project/RoomTypeScreen';
 import DimensionsScreen from '@/screens/project/DimensionsScreen';
+import AiWizardScreen from '@/screens/ai/AiWizardScreen';
+import AiGeneratingScreen from '@/screens/ai/AiGeneratingScreen';
 import FloorPlanEditorScreen from '@/screens/editor/FloorPlanEditorScreen';
 import ThreeDViewScreen from '@/screens/viewer/ThreeDViewScreen';
 import CatalogScreen from '@/screens/catalog/CatalogScreen';
@@ -132,6 +134,13 @@ export default function RootNavigator() {
               <Stack.Screen name={ROUTES.starterIdeas} component={StarterIdeasScreen} />
               <Stack.Screen name={ROUTES.roomType} component={RoomTypeScreen} />
               <Stack.Screen name={ROUTES.dimensions} component={DimensionsScreen} />
+              <Stack.Screen name={ROUTES.aiWizard} component={AiWizardScreen} />
+              {/* No back gesture while a paid generation is in flight. */}
+              <Stack.Screen
+                name={ROUTES.aiGenerating}
+                component={AiGeneratingScreen}
+                options={{ gestureEnabled: false }}
+              />
               <Stack.Screen name={ROUTES.editor} component={FloorPlanEditorScreen} />
               <Stack.Screen name={ROUTES.view3d} component={ThreeDViewScreen} />
               <Stack.Screen name={ROUTES.catalog} component={CatalogScreen} />

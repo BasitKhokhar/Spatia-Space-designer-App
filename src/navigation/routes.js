@@ -20,6 +20,10 @@ export const ROUTES = {
   starterIdeas: 'StarterIdeas',
   roomType: 'RoomType',
   dimensions: 'Dimensions',
+  // AI design — a multi-step brief, then a generating screen that hands the
+  // finished plan straight to the editor (there is no result screen).
+  aiWizard: 'AiWizard',
+  aiGenerating: 'AiGenerating',
   // Design
   editor: 'FloorPlanEditor',
   view3d: 'ThreeDView',

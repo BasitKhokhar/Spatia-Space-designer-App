@@ -57,7 +57,12 @@ async function tryRefresh() {
 // refreshing, and returns the unwrapped `data`.
 export async function request(path, { method = 'GET', body, auth = true, _retry = false } = {}) {
   if (!API_BASE_URL) {
-    throw new Error('No API_BASE_URL configured — running local-first.');
+    // Tagged, because callers must be able to tell "this build has no backend"
+    // apart from "the request failed" — they look identical otherwise (neither
+    // carries an HTTP status) and get reported to the user as being offline.
+    const err = new Error('No API_BASE_URL configured — running local-first.');
+    err.code = 'NO_BACKEND';
+    throw err;
   }
 
   const headers = { 'Content-Type': 'application/json' };
@@ -76,7 +81,9 @@ export async function request(path, { method = 'GET', body, auth = true, _retry 
   }
 
   if (!res.ok) {
-    const err = new Error((json && json.message) || `API ${res.status}: ${path}`);
+    // Auth middleware answers with a bare { error } rather than the standard
+    // envelope, so fall back to it before the generic "API 403: /path".
+    const err = new Error((json && (json.message || json.error)) || `API ${res.status}: ${path}`);
     err.status = res.status;
     err.code = json && json.code;
     throw err;
