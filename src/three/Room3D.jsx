@@ -3,6 +3,10 @@ import { useFrame, useThree } from '@react-three/fiber/native';
 import { Shape, DoubleSide } from 'three';
 
 import { LIGHTING } from './lighting';
+import Environment from './Environment';
+import { boxGeo, planeGeo, shapeGeo } from './geometry';
+import { getMaterial } from './materials/library';
+import { tileOf } from './materials/manifest';
 import { PlacedItem, Door } from './models';
 import { floorMaterialById } from '@/data/materials';
 import { wallLength, itemWallOpenings } from '@/domain/floorplan';
@@ -36,6 +40,7 @@ const AUTO_ROTATE_SPEED = 0.28; // rad/sec — slow turntable showcase spin
 
 export function CameraRig({ cam, wallsRegistry, cutaway = true }) {
   const { camera } = useThree();
+  const invalidate = useThree((s) => s.invalidate);
   const sm = useRef(null);
 
   useFrame((_, delta) => {
@@ -86,7 +91,9 @@ export function CameraRig({ cam, wallsRegistry, cutaway = true }) {
     const z = s.tz + s.radius * Math.sin(polar) * Math.sin(s.azimuth);
     camera.position.set(x, y, z);
     camera.lookAt(s.tx, s.ty, s.tz);
-    camera.updateProjectionMatrix();
+    // NOTE: no updateProjectionMatrix() here. Only the camera's *position* and
+    // orientation change; fov/near/far/aspect never do (r3f updates the
+    // projection itself on resize). Calling it every frame was pure waste.
 
     // Cutaway mode: hide the wall(s) between the camera and each floor so we can
     // always see inside. Every perimeter wall group carries an outward normal; hide
@@ -123,6 +130,29 @@ export function CameraRig({ cam, wallsRegistry, cutaway = true }) {
         }
       }
     }
+
+    // --- keep the loop alive while anything is still moving -----------------
+    //
+    // The canvas runs frameloop="demand", so a frame is only drawn when someone
+    // calls invalidate(). Gesture handlers invalidate on touch, but this rig also
+    // animates on its own — damping toward the target, fling inertia, auto-rotate
+    // — and none of that goes through React. So it has to re-arm itself.
+    //
+    // The damping is geometric (k = 0.18), so once the user lets go this converges
+    // and stops re-arming after ~40 frames. That is what lets a parked 3D view
+    // drop to *zero* rendered frames instead of burning 60fps and cooking the
+    // phone until it thermally throttles.
+    const settling =
+      Math.abs(cam.azimuth - s.azimuth) > 1e-4 ||
+      Math.abs(cam.polar - s.polar) > 1e-4 ||
+      Math.abs(cam.radius - s.radius) > 1e-3 ||
+      Math.abs(target[0] - s.tx) > 1e-3 ||
+      Math.abs(target[1] - s.ty) > 1e-3 ||
+      Math.abs(target[2] - s.tz) > 1e-3;
+
+    if (settling || cam.velAz || cam.velPolar || interacting || cam.autoRotate) {
+      invalidate();
+    }
   });
 
   return null;
@@ -143,7 +173,7 @@ function solidSpans(L, intervals) {
 // A wall segment rendered as boxes, with door/window openings cut out.
 // `outward` (optional [x,z] normal) tags a perimeter wall so the cutaway culling
 // can hide it when the camera is on its outer side.
-function WallMesh({ wall, cx, cz, height, color, openings, outward }) {
+function WallMesh({ wall, cx, cz, height, color, openings, outward, mat = 'plaster' }) {
   const ax = wall.x1 - cx;
   const az = wall.y1 - cz;
   const bx = wall.x2 - cx;
@@ -170,10 +200,14 @@ function WallMesh({ wall, cx, cz, height, color, openings, outward }) {
         const w = u1 - u0;
         if (w <= 0.001) return null;
         return (
-          <mesh key={`s${i}`} position={[(u0 + u1) / 2 - L / 2, height / 2, 0]} castShadow receiveShadow>
-            <boxGeometry args={[w, height, t]} />
-            <meshStandardMaterial color={color} roughness={0.92} />
-          </mesh>
+          <mesh
+            key={`s${i}`}
+            position={[(u0 + u1) / 2 - L / 2, height / 2, 0]}
+            castShadow
+            receiveShadow
+            geometry={boxGeo(w, height, t, tileOf(mat))}
+            material={getMaterial({ id: mat, color, rough: 0.92 })}
+          />
         );
       })}
 
@@ -186,22 +220,29 @@ function WallMesh({ wall, cx, cz, height, color, openings, outward }) {
         return (
           <group key={`o${i}`}>
             {lintelH > 0.01 ? (
-              <mesh position={[localX, topOfOpening + lintelH / 2, 0]} castShadow receiveShadow>
-                <boxGeometry args={[w, lintelH, t]} />
-                <meshStandardMaterial color={color} />
-              </mesh>
+              <mesh
+                position={[localX, topOfOpening + lintelH / 2, 0]}
+                castShadow
+                receiveShadow
+                geometry={boxGeo(w, lintelH, t, tileOf(mat))}
+                material={getMaterial({ id: mat, color })}
+              />
             ) : null}
             {o.sill > 0.01 ? (
-              <mesh position={[localX, o.sill / 2, 0]} castShadow receiveShadow>
-                <boxGeometry args={[w, o.sill, t]} />
-                <meshStandardMaterial color={color} />
-              </mesh>
+              <mesh
+                position={[localX, o.sill / 2, 0]}
+                castShadow
+                receiveShadow
+                geometry={boxGeo(w, o.sill, t, tileOf(mat))}
+                material={getMaterial({ id: mat, color })}
+              />
             ) : null}
             {o.kind === 'window' ? (
-              <mesh position={[localX, o.sill + o.height / 2, 0]}>
-                <boxGeometry args={[w * 0.94, o.height * 0.94, t * 0.3]} />
-                <meshStandardMaterial color="#9fc4dc" transparent opacity={0.4} />
-              </mesh>
+              <mesh
+                position={[localX, o.sill + o.height / 2, 0]}
+                geometry={boxGeo(w * 0.94, o.height * 0.94, t * 0.3)}
+                material={getMaterial({ id: 'glass', color: '#9fc4dc', opacity: 0.4 })}
+              />
             ) : o.kind === 'door' && !o.id?.startsWith('item-open-') ? (
               <group position={[localX, 0, 0]}>
                 <Door w={w} d={t} h={o.height} color={color} />
@@ -222,18 +263,42 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
   const cz = plan.length / 2;
   const h = plan.wallHeight || 2.6;
   const floorMat = floorMaterialById(plan.materials?.floor);
+  // The finish id doubles as the material-library key — the ids in FLOOR_MATERIALS
+  // ('oak', 'tile', ...) are intentionally the same ones in MATERIAL_DEFS, so
+  // every project saved before textures existed picks up the right one for free.
+  const floorMatId = plan.materials?.floor || 'oak';
   const wallColor = plan.materials?.wall || preset.wall;
+  const wallMatId = plan.materials?.wallMaterial || 'plaster';
   // Top of the stack reads as a roof (darker); interior levels get a light
   // plaster ceiling that the level above sits on. Either way the slab is only
   // shown when the camera is inside this floor (see CameraRig culling).
-  const ceilingColor = isRoof ? plan.materials?.roof || '#8C8378' : '#F1ECE3';
+  // `materials.roof` is historically a hex string; accept an object too so a real
+  // roof type can be introduced later without breaking saved plans.
+  const roofSetting = plan.materials?.roof;
+  const ceilingColor = isRoof
+    ? (typeof roofSetting === 'string' ? roofSetting : roofSetting?.color) || '#8C8378'
+    : '#F1ECE3';
+  const ceilingMatId = isRoof ? 'concrete' : 'plaster';
   // Real wall openings, plus see-through gaps derived from door/window items that
   // were dropped onto a wall (so an open door reveals the next room, not wall).
   const itemOpenings = useMemo(() => itemWallOpenings(plan), [plan.furniture, plan.walls]);
-  const openingsFor = (id) => [
-    ...plan.openings.filter((o) => o.wallId === id),
-    ...itemOpenings.filter((o) => o.wallId === id),
-  ];
+  // Bucket openings by wall once, rather than re-filtering both lists for every
+  // wall on every render. Was O(walls x openings) and allocated two throwaway
+  // arrays per wall per render.
+  const openingsByWall = useMemo(() => {
+    const map = new Map();
+    const add = (o) => {
+      const list = map.get(o.wallId);
+      if (list) list.push(o);
+      else map.set(o.wallId, [o]);
+    };
+    (plan.openings || []).forEach(add);
+    itemOpenings.forEach(add);
+    return map;
+  }, [plan.openings, itemOpenings]);
+
+  const EMPTY = useMemo(() => [], []);
+  const openingsFor = (id) => openingsByWall.get(id) || EMPTY;
 
   // Footprint as an [x, z] polygon in building-centered world coords — lets the
   // CameraRig test whether the camera is standing inside this floor's room.
@@ -270,6 +335,16 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
     return s;
   }, [plan.footprint, cx, cz]);
 
+  // Stable cache key for the polygon slab geometry — a THREE.Shape has no identity
+  // of its own, so the geometry cache needs the outline spelled out.
+  const floorShapeKey = useMemo(
+    () =>
+      plan.footprint && plan.footprint.length >= 3
+        ? plan.footprint.map((p) => `${Math.round((p.x - cx) * 1000)},${Math.round((cz - p.y) * 1000)}`).join(';')
+        : `rect:${Math.round(plan.width * 1000)}x${Math.round(plan.length * 1000)}`,
+    [plan.footprint, plan.width, plan.length, cx, cz]
+  );
+
   // A blank plan (no footprint and no perimeter walls) renders no floor slab or
   // ceiling — it reads as empty space. Placed structures bring their own floor +
   // walls (see RoomShell), so a room only appears once the user adds one.
@@ -287,10 +362,22 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
     <group position={[0, yOffset, 0]} visible={visible}>
       {/* floor slab — only when the plan has a shell (footprint / perimeter). */}
       {hasShell ? (
-        <mesh position={[0, -0.02, 0]} receiveShadow rotation={[-Math.PI / 2, 0, 0]}>
-          {floorShape ? <shapeGeometry args={[floorShape]} /> : <planeGeometry args={[plan.width, plan.length]} />}
-          <meshStandardMaterial color={floorMat.c3d} roughness={floorMat.rough} side={DoubleSide} />
-        </mesh>
+        <mesh
+          position={[0, -0.02, 0]}
+          receiveShadow
+          rotation={[-Math.PI / 2, 0, 0]}
+          geometry={
+            floorShape
+              ? shapeGeo(floorShape, floorShapeKey, tileOf(floorMatId))
+              : planeGeo(plan.width, plan.length, tileOf(floorMatId))
+          }
+          material={getMaterial({
+            id: floorMatId,
+            color: floorMat.c3d,
+            rough: floorMat.rough,
+            side: DoubleSide,
+          })}
+        />
       ) : null}
 
       {/* perimeter walls + ceiling/roof — the faces between the camera and the
@@ -299,7 +386,7 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
       {hasShell ? (
         <group ref={wallsRef}>
           {perimeter.map((w) => (
-            <WallMesh key={w.id} wall={w} cx={cx} cz={cz} height={h} color={wallColor} openings={openingsFor(w.id)} outward={outwardFor(w)} />
+            <WallMesh key={w.id} wall={w} cx={cx} cz={cz} height={h} color={wallColor} mat={wallMatId} openings={openingsFor(w.id)} outward={outwardFor(w)} />
           ))}
 
           {/* ceiling / roof slab, capping the walls at their full height. Only
@@ -309,16 +396,24 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
             rotation={[-Math.PI / 2, 0, 0]}
             receiveShadow
             userData={{ horizontal: true, worldBaseY: yOffset, worldTopY: yOffset + h, footprintXZ }}
-          >
-            {floorShape ? <shapeGeometry args={[floorShape]} /> : <planeGeometry args={[plan.width, plan.length]} />}
-            <meshStandardMaterial color={ceilingColor} roughness={isRoof ? 0.85 : 0.95} side={DoubleSide} />
-          </mesh>
+            geometry={
+              floorShape
+                ? shapeGeo(floorShape, floorShapeKey, tileOf(ceilingMatId))
+                : planeGeo(plan.width, plan.length, tileOf(ceilingMatId))
+            }
+            material={getMaterial({
+              id: ceilingMatId,
+              color: ceilingColor,
+              rough: isRoof ? 0.85 : 0.95,
+              side: DoubleSide,
+            })}
+          />
         </group>
       ) : null}
 
       {/* interior partitions (always visible) */}
       {interior.map((w) => (
-        <WallMesh key={w.id} wall={w} cx={cx} cz={cz} height={h} color={wallColor} openings={openingsFor(w.id)} />
+        <WallMesh key={w.id} wall={w} cx={cx} cz={cz} height={h} color={wallColor} mat={wallMatId} openings={openingsFor(w.id)} />
       ))}
 
       {/* furniture & placed structure — realistic procedural models */}
@@ -337,15 +432,21 @@ export default function Room3D({ plan, floors, visibleFloors, lighting = 'golden
   const wallsRegistry = useRef(new Set()).current;
 
   // Normalize to a floor list, then stack each by cumulative wall height.
-  const list = floors && floors.length ? floors : [{ id: '__single', plan }];
-  let acc = 0;
-  const levels = list.map((f) => {
-    const yOffset = acc;
-    acc += (f.plan.wallHeight || 2.6);
-    return { id: f.id, plan: f.plan, yOffset };
-  });
-  const totalH = acc;
-  const span = Math.max(...list.map((f) => Math.max(f.plan.width, f.plan.length)));
+  const { levels, totalH, span, list } = useMemo(() => {
+    const l = floors && floors.length ? floors : [{ id: '__single', plan }];
+    let acc = 0;
+    const lv = l.map((f) => {
+      const yOffset = acc;
+      acc += f.plan.wallHeight || 2.6;
+      return { id: f.id, plan: f.plan, yOffset };
+    });
+    return {
+      list: l,
+      levels: lv,
+      totalH: acc,
+      span: Math.max(...l.map((f) => Math.max(f.plan.width, f.plan.length))),
+    };
+  }, [floors, plan]);
 
   // Fallback camera state if the viewer didn't pass one.
   const fallback = useRef({
@@ -360,9 +461,23 @@ export default function Room3D({ plan, floors, visibleFloors, lighting = 'golden
   return (
     <>
       <color attach="background" args={[preset.background]} />
-      <ambientLight color={preset.ambient.color} intensity={preset.ambient.intensity * 0.8} />
-      {/* soft sky/ground fill so surfaces gradate instead of reading flat */}
-      <hemisphereLight args={[preset.background, groundMat.c3d, 0.55]} />
+      {/* distance haze — reads as depth on exterior views, and hides the hard
+          horizon where the ground plane meets the background color */}
+      <fog attach="fog" args={[preset.background, span * 2.5, span * 9]} />
+      {/* Indirect light for every meshStandardMaterial in the scene. Everything
+          below is only the *direct* term — without this the PBR shader has no
+          ambient specular at all, which is what made the old render read flat. */}
+      <Environment preset={preset} intensity={preset.envIntensity ?? 1} />
+      {/* The analytic lights are deliberately weak now: the environment supplies
+          ambient and fill, so keeping the old intensities here would blow out. */}
+      <ambientLight color={preset.ambient.color} intensity={preset.ambient.intensity} />
+      {/* Floor-bounce cheat — tints upward-facing surfaces with the floor color,
+          which IBL alone can't know about since it has no scene geometry. */}
+      <hemisphereLight args={[preset.background, groundMat.c3d, 0.15]} />
+      {/* Sun / key light. shadow-normalBias offsets along the surface normal, which
+          is the correct fix for peter-panning on box geometry — a large constant
+          bias (the old -0.0006) detaches contact shadows and makes furniture read
+          as unglued from the floor. */}
       <directionalLight
         color={preset.directional.color}
         intensity={preset.directional.intensity}
@@ -376,7 +491,8 @@ export default function Room3D({ plan, floors, visibleFloors, lighting = 'golden
         shadow-camera-right={span}
         shadow-camera-top={span}
         shadow-camera-bottom={-span}
-        shadow-bias={-0.0006}
+        shadow-normalBias={0.02}
+        shadow-bias={-0.0001}
       />
       {lighting === 'night' || lighting === 'evening' ? (
         <pointLight color="#FFD8A0" intensity={1.2} position={[0, totalH - 0.4, 0]} distance={span * 1.6} />

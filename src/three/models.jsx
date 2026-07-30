@@ -1,8 +1,12 @@
-import { Component, Suspense } from 'react';
+import { Component, Suspense, memo, useMemo } from 'react';
 import { Shape, DoubleSide } from 'three';
 
 import { ModelItem } from './ModelItem';
 import { modelFor } from './modelRegistry';
+import { SHADOW_GEO, SHADOW_MAT, SHADOW_SPREAD, castsContactShadow } from './contactShadow';
+import { boxGeo, coneGeo, cylGeo, shapeGeo, sphereGeo, torusGeo } from './geometry';
+import { getMaterial } from './materials/library';
+import { tileOf } from './materials/manifest';
 import { itemDims, wallHit, pointAlongWall } from '@/domain/floorplan';
 import { shapePolygon } from '@/data/structure';
 import { pc } from '@/data/itemEditor';
@@ -36,31 +40,129 @@ const LEAF_DK = '#3E5B45';
 const TRUNK = '#6E5240';
 
 // ---- primitives -----------------------------------------------------------
+//
+// All three take an optional `mat` — a key into MATERIAL_DEFS (manifest.js) that
+// supplies a texture, roughness and metalness. It defaults to 'paint' (flat, no
+// texture), which reproduces the original untextured look, so a builder only
+// needs updating where a real finish actually helps.
+//
+// RULE: no builder below may inline <boxGeometry> or <meshStandardMaterial> again.
+// Both are now pulled from module-level caches — that is what keeps the scene at
+// a few dozen shader programs instead of a few hundred, and it is the difference
+// between the 3D view opening instantly and stalling for seconds.
 
-function Box({ w, h, d, x = 0, y = 0, z = 0, color, rough = 0.85, metal = 0, ry = 0, transparent, opacity }) {
+function Box({
+  w, h, d, x = 0, y = 0, z = 0,
+  color, mat = 'paint', rough, metal, ry = 0, rot, transparent, opacity,
+  emissive, emissiveIntensity, side,
+  // Glass panes and similar opt out of shadow casting: a translucent pane throws
+  // a fully opaque shadow, which reads as a dark smear on whatever is behind it.
+  cast = true, receive = true,
+}) {
+  // Only fall back to the primitive's historical roughness for untextured paint;
+  // a named material must be allowed to supply its own.
+  const effRough = rough ?? (mat === 'paint' ? 0.85 : undefined);
   return (
-    <mesh position={[x, y, z]} rotation={[0, ry, 0]} castShadow receiveShadow>
-      <boxGeometry args={[w, h, d]} />
-      <meshStandardMaterial color={color} roughness={rough} metalness={metal} transparent={transparent} opacity={opacity} />
-    </mesh>
+    <mesh
+      position={[x, y, z]}
+      rotation={rot || [0, ry, 0]}
+      castShadow={cast}
+      receiveShadow={receive}
+      geometry={boxGeo(w, h, d, tileOf(mat))}
+      material={getMaterial({
+        id: mat,
+        color,
+        rough: effRough,
+        metal,
+        opacity: transparent && opacity == null ? 0.5 : opacity,
+        emissive,
+        emissiveIntensity,
+        side,
+      })}
+    />
   );
 }
 
-function Cyl({ r, rTop, rBot, h, x = 0, y = 0, z = 0, color, rough = 0.7, metal = 0, seg = 20, rot = [0, 0, 0] }) {
+function Cyl({
+  r, rTop, rBot, h, x = 0, y = 0, z = 0,
+  color, mat = 'paint', rough, metal, seg = 20, rot = [0, 0, 0],
+  transparent, opacity, emissive, emissiveIntensity,
+  cast = true, receive = true,
+}) {
+  const effRough = rough ?? (mat === 'paint' ? 0.7 : undefined);
   return (
-    <mesh position={[x, y, z]} rotation={rot} castShadow receiveShadow>
-      <cylinderGeometry args={[rTop ?? r, rBot ?? r, h, seg]} />
-      <meshStandardMaterial color={color} roughness={rough} metalness={metal} />
-    </mesh>
+    <mesh
+      position={[x, y, z]}
+      rotation={rot}
+      castShadow={cast}
+      receiveShadow={receive}
+      geometry={cylGeo(rTop ?? r, rBot ?? r, h, seg)}
+      material={getMaterial({
+        id: mat,
+        color,
+        rough: effRough,
+        metal,
+        opacity: transparent && opacity == null ? 0.5 : opacity,
+        emissive,
+        emissiveIntensity,
+      })}
+    />
   );
 }
 
-function Ball({ r, x = 0, y = 0, z = 0, color, rough = 0.9 }) {
+// Lampshades. `open` drops the end cap so you can see up inside the shade, which
+// is why these need DoubleSide.
+function Cone({
+  r, h, x = 0, y = 0, z = 0, seg = 24, open = false, rot,
+  color, mat = 'paint', rough, emissive, emissiveIntensity, side,
+}) {
+  const effRough = rough ?? (mat === 'paint' ? 0.6 : undefined);
   return (
-    <mesh position={[x, y, z]} castShadow receiveShadow>
-      <sphereGeometry args={[r, 18, 14]} />
-      <meshStandardMaterial color={color} roughness={rough} />
-    </mesh>
+    <mesh
+      position={[x, y, z]}
+      {...(rot ? { rotation: rot } : null)}
+      castShadow
+      geometry={coneGeo(r, h, seg, open)}
+      material={getMaterial({
+        id: mat,
+        color,
+        rough: effRough,
+        emissive,
+        emissiveIntensity,
+        side: side ?? (open ? DoubleSide : undefined),
+      })}
+    />
+  );
+}
+
+// Hanging rails and hoops. `arc` renders a partial ring (e.g. a basket handle).
+function Torus({
+  r, tube, x = 0, y = 0, z = 0, radialSeg = 8, tubularSeg = 24, arc, rot,
+  color, mat = 'paint', rough, metal, cast = true, receive = false,
+}) {
+  const effRough = rough ?? (mat === 'paint' ? 0.4 : undefined);
+  return (
+    <mesh
+      position={[x, y, z]}
+      {...(rot ? { rotation: rot } : null)}
+      castShadow={cast}
+      receiveShadow={receive}
+      geometry={torusGeo(r, tube, radialSeg, tubularSeg, arc)}
+      material={getMaterial({ id: mat, color, rough: effRough, metal })}
+    />
+  );
+}
+
+function Ball({ r, x = 0, y = 0, z = 0, color, mat = 'paint', rough, emissive, emissiveIntensity }) {
+  const effRough = rough ?? (mat === 'paint' ? 0.9 : undefined);
+  return (
+    <mesh
+      position={[x, y, z]}
+      castShadow
+      receiveShadow
+      geometry={sphereGeo(r, 18, 14)}
+      material={getMaterial({ id: mat, color, rough: effRough, emissive, emissiveIntensity })}
+    />
   );
 }
 
@@ -87,14 +189,14 @@ function Sofa({ w, d, h, color, parts }) {
   const base = pc(parts, 'base', shade(color, 0.9));
   return (
     <>
-      <Box w={w} h={seatH} d={d * 0.96} y={seatH / 2} color={base} rough={0.95} />
+      <Box w={w} h={seatH} d={d * 0.96} y={seatH / 2} mat="fabric" color={base} />
       {/* seat cushions */}
-      <Box w={w * 0.9} h={h * 0.14} d={d * 0.7} y={seatH + h * 0.06} z={d * 0.08} color={body} rough={0.95} />
+      <Box w={w * 0.9} h={h * 0.14} d={d * 0.7} y={seatH + h * 0.06} z={d * 0.08} mat="fabric" color={body} />
       {/* backrest */}
-      <Box w={w} h={h * 0.55} d={d * 0.2} y={h * 0.5} z={-d * 0.4} color={body} rough={0.95} />
+      <Box w={w} h={h * 0.55} d={d * 0.2} y={h * 0.5} z={-d * 0.4} mat="fabric" color={body} />
       {/* arms */}
-      <Box w={w * 0.12} h={h * 0.5} d={d * 0.96} x={w * 0.44} y={h * 0.3} color={body} rough={0.95} />
-      <Box w={w * 0.12} h={h * 0.5} d={d * 0.96} x={-w * 0.44} y={h * 0.3} color={body} rough={0.95} />
+      <Box w={w * 0.12} h={h * 0.5} d={d * 0.96} x={w * 0.44} y={h * 0.3} mat="fabric" color={body} />
+      <Box w={w * 0.12} h={h * 0.5} d={d * 0.96} x={-w * 0.44} y={h * 0.3} mat="fabric" color={body} />
     </>
   );
 }
@@ -103,8 +205,8 @@ function Chair({ w, d, h, color }) {
   const seatH = h * 0.45;
   return (
     <>
-      <Box w={w * 0.9} h={h * 0.09} d={d * 0.9} y={seatH} color={color} rough={0.8} />
-      <Box w={w * 0.9} h={h * 0.48} d={d * 0.1} y={seatH + h * 0.26} z={-d * 0.4} color={color} rough={0.8} />
+      <Box w={w * 0.9} h={h * 0.09} d={d * 0.9} y={seatH} mat="wood" color={color} />
+      <Box w={w * 0.9} h={h * 0.48} d={d * 0.1} y={seatH + h * 0.26} z={-d * 0.4} mat="wood" color={color} />
       <Legs w={w * 0.9} d={d * 0.9} top={seatH} r={Math.min(w, d) * 0.05} color={shade(color, 0.7)} />
     </>
   );
@@ -124,7 +226,7 @@ function TableLike({ w, d, h, color }) {
   const topH = h * 0.08;
   return (
     <>
-      <Box w={w} h={topH} d={d} y={h - topH / 2} color={color} rough={0.6} />
+      <Box w={w} h={topH} d={d} y={h - topH / 2} mat="wood" color={color} />
       <Legs w={w} d={d} top={h - topH} r={Math.min(w, d) * 0.04} color={shade(color, 0.7)} />
     </>
   );
@@ -135,7 +237,7 @@ function RoundTable({ w, d, h, color }) {
   const r = Math.min(w, d) / 2;
   return (
     <>
-      <Cyl r={r} h={topH} y={h - topH / 2} color={color} rough={0.6} />
+      <Cyl r={r} h={topH} y={h - topH / 2} mat="wood" color={color} />
       <Cyl r={r * 0.12} h={h - topH} y={(h - topH) / 2} color={shade(color, 0.7)} />
       <Cyl r={r * 0.35} h={h * 0.04} y={h * 0.02} color={shade(color, 0.6)} />
     </>
@@ -146,9 +248,9 @@ function Desk({ w, d, h, color }) {
   const topH = h * 0.08;
   return (
     <>
-      <Box w={w} h={topH} d={d} y={h - topH / 2} color={color} rough={0.6} />
+      <Box w={w} h={topH} d={d} y={h - topH / 2} mat="wood" color={color} />
       {/* drawer pedestal */}
-      <Box w={w * 0.3} h={h * 0.8} d={d * 0.9} x={w * 0.3} y={h * 0.4} color={shade(color, 0.9)} />
+      <Box w={w * 0.3} h={h * 0.8} d={d * 0.9} x={w * 0.3} y={h * 0.4} mat="wood" color={shade(color, 0.9)} />
       <Cyl r={0.03} h={h - topH} x={-w * 0.42} y={(h - topH) / 2} z={d * 0.4} color={shade(color, 0.7)} />
       <Cyl r={0.03} h={h - topH} x={-w * 0.42} y={(h - topH) / 2} z={-d * 0.4} color={shade(color, 0.7)} />
     </>
@@ -164,14 +266,14 @@ function Bed({ w, d, h, color, parts }) {
   return (
     <>
       {/* base / frame */}
-      <Box w={w} h={baseH} d={d} y={baseH / 2} color={base} />
+      <Box w={w} h={baseH} d={d} y={baseH / 2} mat="wood" color={base} />
       {/* mattress */}
-      <Box w={w * 0.96} h={h * 0.16} d={d * 0.9} y={baseH + h * 0.08} z={d * 0.03} color={mattress} rough={0.95} />
+      <Box w={w * 0.96} h={h * 0.16} d={d * 0.9} y={baseH + h * 0.08} z={d * 0.03} mat="fabric" color={mattress} />
       {/* headboard */}
-      <Box w={w} h={h * 0.55} d={d * 0.06} y={h * 0.42} z={-d * 0.47} color={headboard} />
+      <Box w={w} h={h * 0.55} d={d * 0.06} y={h * 0.42} z={-d * 0.47} mat="fabric" color={headboard} />
       {/* pillows */}
-      <Box w={w * 0.4} h={h * 0.1} d={d * 0.16} x={-w * 0.22} y={baseH + h * 0.2} z={-d * 0.32} color={pillow} rough={1} />
-      <Box w={w * 0.4} h={h * 0.1} d={d * 0.16} x={w * 0.22} y={baseH + h * 0.2} z={-d * 0.32} color={pillow} rough={1} />
+      <Box w={w * 0.4} h={h * 0.1} d={d * 0.16} x={-w * 0.22} y={baseH + h * 0.2} z={-d * 0.32} mat="fabric" color={pillow} rough={1} />
+      <Box w={w * 0.4} h={h * 0.1} d={d * 0.16} x={w * 0.22} y={baseH + h * 0.2} z={-d * 0.32} mat="fabric" color={pillow} rough={1} />
     </>
   );
 }
@@ -180,11 +282,11 @@ function ShelfUnit({ w, d, h, color }) {
   const t = Math.min(0.04, h * 0.04);
   const shelves = Math.max(2, Math.round(h / 0.4));
   const parts = [];
-  parts.push(<Box key="bk" w={w} h={h} d={t} y={h / 2} z={-d / 2 + t / 2} color={shade(color, 0.85)} />);
-  parts.push(<Box key="l" w={t} h={h} d={d} x={-w / 2 + t / 2} y={h / 2} color={color} />);
-  parts.push(<Box key="r" w={t} h={h} d={d} x={w / 2 - t / 2} y={h / 2} color={color} />);
+  parts.push(<Box key="bk" w={w} h={h} d={t} y={h / 2} z={-d / 2 + t / 2} mat="wood" color={shade(color, 0.85)} />);
+  parts.push(<Box key="l" w={t} h={h} d={d} x={-w / 2 + t / 2} y={h / 2} mat="wood" color={color} />);
+  parts.push(<Box key="r" w={t} h={h} d={d} x={w / 2 - t / 2} y={h / 2} mat="wood" color={color} />);
   for (let i = 0; i <= shelves; i++) {
-    parts.push(<Box key={`s${i}`} w={w} h={t} d={d} y={(i / shelves) * h} color={color} />);
+    parts.push(<Box key={`s${i}`} w={w} h={t} d={d} y={(i / shelves) * h} mat="wood" color={color} />);
   }
   return <>{parts}</>;
 }
@@ -194,7 +296,7 @@ function Cabinet({ w, d, h, color, parts }) {
   const handle = pc(parts, 'handle', METAL_DK);
   return (
     <>
-      <Box w={w} h={h} d={d} y={h / 2} color={body} rough={0.7} />
+      <Box w={w} h={h} d={d} y={h / 2} mat="wood" color={body} />
       {/* door split + handles */}
       <Box w={0.01} h={h * 0.96} d={0.005} y={h / 2} z={d / 2} color={shade(body, 0.6)} />
       <Cyl r={0.012} h={h * 0.12} x={-w * 0.08} y={h * 0.5} z={d / 2} color={handle} rot={[0, 0, 0]} />
@@ -206,8 +308,8 @@ function Cabinet({ w, d, h, color, parts }) {
 function Counter({ w, d, h, color }) {
   return (
     <>
-      <Box w={w} h={h * 0.92} d={d} y={h * 0.46} color={color} rough={0.7} />
-      <Box w={w * 1.02} h={h * 0.08} d={d * 1.04} y={h * 0.96} color={shade(color, 1.1)} rough={0.35} />
+      <Box w={w} h={h * 0.92} d={d} y={h * 0.46} mat="wood" color={color} />
+      <Box w={w * 1.02} h={h * 0.08} d={d * 1.04} y={h * 0.96} mat="marble" color={shade(color, 1.1)} rough={0.35} />
     </>
   );
 }
@@ -215,8 +317,9 @@ function Counter({ w, d, h, color }) {
 function Island({ w, d, h, color }) {
   return (
     <>
-      <Box w={w} h={h * 0.9} d={d} y={h * 0.45} color={color} rough={0.7} />
-      <Box w={w * 1.04} h={h * 0.1} d={d * 1.06} y={h * 0.95} color={shade(color, 1.15)} rough={0.3} />
+      <Box w={w} h={h * 0.9} d={d} y={h * 0.45} mat="wood" color={color} />
+      {/* worktop reads as stone — the sharpest visual cue that this is a kitchen */}
+      <Box w={w * 1.04} h={h * 0.1} d={d * 1.06} y={h * 0.95} mat="marble" color={shade(color, 1.15)} rough={0.3} />
     </>
   );
 }
@@ -293,10 +396,7 @@ function Lamp({ w, d, h, color }) {
     <>
       <Cyl r={r * 0.5} h={h * 0.03} y={h * 0.015} color={METAL_DK} />
       <Cyl r={r * 0.06} h={h * 0.8} y={h * 0.4} color={METAL} metal={0.4} />
-      <mesh position={[0, h * 0.86, 0]} castShadow>
-        <coneGeometry args={[r * 0.7, h * 0.28, 24, 1, true]} />
-        <meshStandardMaterial color={color} roughness={0.6} side={DoubleSide} emissive={color} emissiveIntensity={0.25} />
-      </mesh>
+      <Cone r={r * 0.7} h={h * 0.28} y={h * 0.86} open color={color} rough={0.6} emissive={color} emissiveIntensity={0.25} />
     </>
   );
 }
@@ -306,10 +406,7 @@ function Pendant({ w, d, h, color }) {
   return (
     <>
       <Cyl r={0.006} h={h * 0.5} y={h * 0.75} color={METAL_DK} />
-      <mesh position={[0, h * 0.4, 0]} castShadow>
-        <coneGeometry args={[r * 0.55, h * 0.4, 24]} />
-        <meshStandardMaterial color={color} roughness={0.5} emissive={color} emissiveIntensity={0.3} />
-      </mesh>
+      <Cone r={r * 0.55} h={h * 0.4} y={h * 0.4} color={color} rough={0.5} emissive={color} emissiveIntensity={0.3} />
     </>
   );
 }
@@ -378,10 +475,7 @@ function WallSconce({ w, d, h, color }) {
   return (
     <>
       <Box w={w * 0.55} h={h * 0.5} d={d * 0.35} z={-d * 0.25} color={METAL_DK} />
-      <mesh position={[0, 0, d * 0.2]} castShadow>
-        <coneGeometry args={[r * 0.42, h * 0.5, 20, 1, true]} />
-        <meshStandardMaterial color={color} roughness={0.5} side={DoubleSide} emissive={color} emissiveIntensity={0.4} />
-      </mesh>
+      <Cone r={r * 0.42} h={h * 0.5} z={d * 0.2} seg={20} open color={color} rough={0.5} emissive={color} emissiveIntensity={0.4} />
     </>
   );
 }
@@ -533,33 +627,32 @@ function Car({ w, d, h, color, catalogId }) {
   return (
     <>
       {/* main body mass — sits between the wheels along the full length */}
-      <mesh position={[0, bodyY, 0]} castShadow receiveShadow>
-        <boxGeometry args={[bw, bodyH, d * 0.98]} />
-        <meshStandardMaterial color={color} roughness={0.3} metalness={0.6} />
-      </mesh>
+      <Box w={bw} h={bodyH} d={d * 0.98} y={bodyY} color={color} rough={0.3} metal={0.6} />
       {/* lower rocker/skirt for a grounded look */}
       <Box w={bw * 1.02} h={bodyH * 0.42} d={d * 0.9} y={sillY + bodyH * 0.2} color={trim} rough={0.5} metal={0.3} />
 
       {/* closed roof: solid cabin + wrapping tinted greenhouse */}
       {p.roof !== 'open' && (
         <>
-          <mesh position={[0, cabinY, cabinZ]} castShadow>
-            <boxGeometry args={[cw, cabinH, cabinLen]} />
-            <meshStandardMaterial color={color} roughness={0.3} metalness={0.6} />
-          </mesh>
-          <mesh position={[0, cabinY + cabinH * 0.04, cabinZ]}>
-            <boxGeometry args={[cw * 1.01, cabinH * 0.66, cabinLen * 0.96]} />
-            <meshStandardMaterial color={glass} roughness={0.06} metalness={0.4} transparent opacity={0.9} />
-          </mesh>
+          <Box w={cw} h={cabinH} d={cabinLen} y={cabinY} z={cabinZ} color={color} rough={0.3} metal={0.6} receive={false} />
+          <Box
+            w={cw * 1.01} h={cabinH * 0.66} d={cabinLen * 0.96}
+            y={cabinY + cabinH * 0.04} z={cabinZ}
+            color={glass} rough={0.06} metal={0.4} opacity={0.9} cast={false} receive={false}
+          />
           {/* windshield (front) + rear window as sloped panes */}
-          <mesh position={[0, cabinY - cabinH * 0.08, cabinZ + cabinLen * 0.5]} rotation={[0.6, 0, 0]}>
-            <boxGeometry args={[cw * 0.92, cabinH * 0.9, 0.02]} />
-            <meshStandardMaterial color={glass} roughness={0.05} metalness={0.4} transparent opacity={0.85} />
-          </mesh>
-          <mesh position={[0, cabinY - cabinH * 0.08, cabinZ - cabinLen * 0.5]} rotation={[-0.5, 0, 0]}>
-            <boxGeometry args={[cw * 0.92, cabinH * 0.9, 0.02]} />
-            <meshStandardMaterial color={glass} roughness={0.05} metalness={0.4} transparent opacity={0.85} />
-          </mesh>
+          <Box
+            w={cw * 0.92} h={cabinH * 0.9} d={0.02}
+            y={cabinY - cabinH * 0.08} z={cabinZ + cabinLen * 0.5}
+            rot={[0.6, 0, 0]}
+            color={glass} rough={0.05} metal={0.4} opacity={0.85} cast={false} receive={false}
+          />
+          <Box
+            w={cw * 0.92} h={cabinH * 0.9} d={0.02}
+            y={cabinY - cabinH * 0.08} z={cabinZ - cabinLen * 0.5}
+            rot={[-0.5, 0, 0]}
+            color={glass} rough={0.05} metal={0.4} opacity={0.85} cast={false} receive={false}
+          />
         </>
       )}
 
@@ -567,10 +660,12 @@ function Car({ w, d, h, color, catalogId }) {
       {p.roof === 'open' && (
         <>
           <Box w={cw * 0.94} h={bodyH * 0.34} d={cabinLen} y={sillY + bodyH * 0.9} z={cabinZ} color={shade(color, 0.35)} rough={0.85} />
-          <mesh position={[0, sillY + bodyH + cabinH * 0.5, cabinZ + cabinLen * 0.45]} rotation={[0.7, 0, 0]}>
-            <boxGeometry args={[cw * 0.9, cabinH * 1.4, 0.02]} />
-            <meshStandardMaterial color={glass} roughness={0.05} metalness={0.4} transparent opacity={0.8} />
-          </mesh>
+          <Box
+            w={cw * 0.9} h={cabinH * 1.4} d={0.02}
+            y={sillY + bodyH + cabinH * 0.5} z={cabinZ + cabinLen * 0.45}
+            rot={[0.7, 0, 0]}
+            color={glass} rough={0.05} metal={0.4} opacity={0.8} cast={false} receive={false}
+          />
         </>
       )}
 
@@ -604,14 +699,8 @@ function Car({ w, d, h, color, catalogId }) {
       {/* wheels — tyre + lighter rim */}
       {[[wx, wz], [-wx, wz], [wx, -wz], [-wx, -wz]].map(([x, z], i) => (
         <group key={i} position={[x, wheelR, z]} rotation={[0, 0, Math.PI / 2]}>
-          <mesh castShadow>
-            <cylinderGeometry args={[wheelR, wheelR, w * 0.14, 20]} />
-            <meshStandardMaterial color={TIRE} roughness={0.85} />
-          </mesh>
-          <mesh position={[0, w * 0.075, 0]}>
-            <cylinderGeometry args={[wheelR * 0.55, wheelR * 0.55, 0.02, 16]} />
-            <meshStandardMaterial color={METAL} roughness={0.35} metalness={0.7} />
-          </mesh>
+          <Cyl r={wheelR} h={w * 0.14} seg={20} color={TIRE} rough={0.85} receive={false} />
+          <Cyl r={wheelR * 0.55} h={0.02} y={w * 0.075} seg={16} color={METAL} rough={0.35} metal={0.7} cast={false} receive={false} />
         </group>
       ))}
       {/* bumpers */}
@@ -724,10 +813,7 @@ function RoundRack({ w, d, h, color }) {
   const parts = [
     <Cyl key="pole" r={0.025} h={h} y={h / 2} color={METAL} metal={0.6} />,
     <Cyl key="foot" r={R * 0.5} h={h * 0.02} y={h * 0.01} color={METAL_DK} />,
-    <mesh key="ring" position={[0, h * 0.9, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-      <torusGeometry args={[R, 0.02, 8, 28]} />
-      <meshStandardMaterial color={METAL} metalness={0.6} roughness={0.4} />
-    </mesh>,
+    <Torus key="ring" r={R} tube={0.02} tubularSeg={28} y={h * 0.9} rot={[Math.PI / 2, 0, 0]} color={METAL} metal={0.6} rough={0.4} />,
   ];
   const n = 10;
   for (let i = 0; i < n; i++) {
@@ -809,10 +895,7 @@ function Basket({ w, d, h, color }) {
   return (
     <>
       <Cyl rTop={r * 0.55} rBot={r * 0.44} h={h * 0.7} y={h * 0.35} color={color} rough={0.6} seg={4} rot={[0, Math.PI / 4, 0]} />
-      <mesh position={[0, h * 0.82, 0]} rotation={[Math.PI / 2, 0, 0]} castShadow>
-        <torusGeometry args={[r * 0.3, 0.015, 8, 20, Math.PI]} />
-        <meshStandardMaterial color={shade(color, 0.8)} roughness={0.6} />
-      </mesh>
+      <Torus r={r * 0.3} tube={0.015} tubularSeg={20} arc={Math.PI} y={h * 0.82} rot={[Math.PI / 2, 0, 0]} color={shade(color, 0.8)} rough={0.6} />
     </>
   );
 }
@@ -849,117 +932,135 @@ function GenericBox({ w, d, h, color }) {
 
 // A room shell: polygon floor slab + wall around every edge with door/window openings cut out.
 function RoomShell({ item, w, d, h, kind, points, wallThickness, wallColor, floorColor, plan }) {
-  const pts =
-    Array.isArray(points) && points.length >= 3
-      ? points.map((p) => [p.x, p.y])
-      : (shapePolygon(kind) || [[0, 0], [1, 0], [1, 1], [0, 1]]).map(([nx, ny]) => [(nx - 0.5) * w, (ny - 0.5) * d]);
-  const t = wallThickness && wallThickness > 0 ? wallThickness : 0.11;
+  // Everything below is derived geometry, and it is expensive: the opening scan is
+  // O(furniture x edges), so a 3-room plan with 200 items ran ~2,400 wallHit tests
+  // PER RENDER on the JS thread — the reason dragging an item felt sticky. None of
+  // it depends on anything but the inputs listed in the dependency array, so it is
+  // computed once and reused until the plan actually changes.
+  const geo = useMemo(() => {
+    const pts =
+      Array.isArray(points) && points.length >= 3
+        ? points.map((p) => [p.x, p.y])
+        : (shapePolygon(kind) || [[0, 0], [1, 0], [1, 1], [0, 1]]).map(([nx, ny]) => [(nx - 0.5) * w, (ny - 0.5) * d]);
+    const t = wallThickness && wallThickness > 0 ? wallThickness : 0.11;
 
-  const floorShape = new Shape();
-  pts.forEach(([x, z], i) => (i === 0 ? floorShape.moveTo(x, -z) : floorShape.lineTo(x, -z)));
-  floorShape.closePath();
+      const floorShape = new Shape();
+    pts.forEach(([x, z], i) => (i === 0 ? floorShape.moveTo(x, -z) : floorShape.lineTo(x, -z)));
+    floorShape.closePath();
+    // A THREE.Shape has no stable identity, so the geometry cache needs an explicit
+    // key derived from the outline. Rounded to 1mm to match the cache's quantising.
+    const floorKey = pts.map(([x, z]) => `${Math.round(x * 1000)},${Math.round(z * 1000)}`).join(';');
 
-  // Collect all doors and windows to cut openings in the room shell walls
-  const allDoorsWindows = [];
-  if (plan) {
-    for (const f of plan.furniture || []) {
-      if (f.id === item?.id) continue;
-      const isDoor = f.shape?.type === 'door' || f.kind?.toLowerCase().includes('door') || f.catalogId?.includes('door');
-      const isWin = f.shape?.type === 'window' || f.kind?.toLowerCase().includes('window') || f.catalogId?.includes('window');
-      if (isDoor || isWin) {
-        allDoorsWindows.push({
-          x: f.x,
-          y: f.y,
-          width: itemDims(f).w || 0.9,
-          height: itemDims(f).h || 2.05,
-          kind: isWin ? 'window' : 'door',
-          sill: isWin ? (f.elevation ?? 0.85) : 0,
-        });
+    // Finish ids come straight from the plan — the same stable ids the 2D editor
+    // and every saved project already use ('oak', 'tile', ...). wallMaterial is new
+    // and optional, so existing plans fall through to plaster.
+    const floorMat = plan?.materials?.floor || 'oak';
+    const wallMat = plan?.materials?.wallMaterial || 'plaster';
+
+    // Collect all doors and windows to cut openings in the room shell walls
+    const allDoorsWindows = [];
+    if (plan) {
+      for (const f of plan.furniture || []) {
+        if (f.id === item?.id) continue;
+        const isDoor = f.shape?.type === 'door' || f.kind?.toLowerCase().includes('door') || f.catalogId?.includes('door');
+        const isWin = f.shape?.type === 'window' || f.kind?.toLowerCase().includes('window') || f.catalogId?.includes('window');
+        if (isDoor || isWin) {
+          allDoorsWindows.push({
+            x: f.x,
+            y: f.y,
+            width: itemDims(f).w || 0.9,
+            height: itemDims(f).h || 2.05,
+            kind: isWin ? 'window' : 'door',
+            sill: isWin ? (f.elevation ?? 0.85) : 0,
+          });
+        }
       }
-    }
-    for (const o of plan.openings || []) {
-      const wall = plan.walls?.find((w) => w.id === o.wallId);
-      if (wall) {
-        const pt = pointAlongWall(wall, o.t);
-        allDoorsWindows.push({
-          x: pt.x,
-          y: pt.y,
-          width: o.width || 0.9,
-          height: o.height || 2.05,
-          kind: o.kind || 'door',
-          sill: o.sill || 0,
-        });
-      }
-    }
-  }
-
-  const itemX = item?.x ?? 0;
-  const itemY = item?.y ?? 0;
-
-  const edges = [];
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i];
-    const b = pts[(i + 1) % pts.length];
-    const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 0.01;
-
-    const worldWall = {
-      x1: itemX + a[0],
-      y1: itemY + a[1],
-      x2: itemX + b[0],
-      y2: itemY + b[1],
-      thickness: t,
-    };
-
-    const edgeOps = [];
-    for (const dw of allDoorsWindows) {
-      const hit = wallHit(worldWall, { x: dw.x, y: dw.y });
-      if (hit.dist <= t / 2 + 0.6) {
-        const u = hit.t * len;
-        const u0 = Math.max(0, Math.min(len, u - dw.width / 2));
-        const u1 = Math.max(0, Math.min(len, u + dw.width / 2));
-        if (u1 - u0 > 0.01) {
-          edgeOps.push({ u0, u1, height: dw.height, sill: dw.sill, kind: dw.kind });
+      for (const o of plan.openings || []) {
+        const wall = plan.walls?.find((w) => w.id === o.wallId);
+        if (wall) {
+          const pt = pointAlongWall(wall, o.t);
+          allDoorsWindows.push({
+            x: pt.x,
+            y: pt.y,
+            width: o.width || 0.9,
+            height: o.height || 2.05,
+            kind: o.kind || 'door',
+            sill: o.sill || 0,
+          });
         }
       }
     }
-    edgeOps.sort((p, q) => p.u0 - q.u0);
 
-    const spans = [];
-    let cursor = 0;
-    for (const op of edgeOps) {
-      if (op.u0 > cursor) spans.push([cursor, op.u0]);
-      cursor = Math.max(cursor, op.u1);
+    const itemX = item?.x ?? 0;
+    const itemY = item?.y ?? 0;
+
+    const edges = [];
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i];
+      const b = pts[(i + 1) % pts.length];
+      const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 0.01;
+
+      const worldWall = {
+        x1: itemX + a[0],
+        y1: itemY + a[1],
+        x2: itemX + b[0],
+        y2: itemY + b[1],
+        thickness: t,
+      };
+
+      const edgeOps = [];
+      for (const dw of allDoorsWindows) {
+        const hit = wallHit(worldWall, { x: dw.x, y: dw.y });
+        if (hit.dist <= t / 2 + 0.6) {
+          const u = hit.t * len;
+          const u0 = Math.max(0, Math.min(len, u - dw.width / 2));
+          const u1 = Math.max(0, Math.min(len, u + dw.width / 2));
+          if (u1 - u0 > 0.01) {
+            edgeOps.push({ u0, u1, height: dw.height, sill: dw.sill, kind: dw.kind });
+          }
+        }
+      }
+      edgeOps.sort((p, q) => p.u0 - q.u0);
+
+      const spans = [];
+      let cursor = 0;
+      for (const op of edgeOps) {
+        if (op.u0 > cursor) spans.push([cursor, op.u0]);
+        cursor = Math.max(cursor, op.u1);
+      }
+      if (cursor < len) spans.push([cursor, len]);
+
+      edges.push({
+        mx: (a[0] + b[0]) / 2,
+        mz: (a[1] + b[1]) / 2,
+        len,
+        ang: Math.atan2(b[1] - a[1], b[0] - a[0]),
+        spans,
+        ops: edgeOps,
+      });
     }
-    if (cursor < len) spans.push([cursor, len]);
 
-    edges.push({
-      mx: (a[0] + b[0]) / 2,
-      mz: (a[1] + b[1]) / 2,
-      len,
-      ang: Math.atan2(b[1] - a[1], b[0] - a[0]),
-      spans,
-      ops: edgeOps,
-    });
-  }
+    return { pts, t, floorShape, floorKey, floorMat, wallMat, edges };
+  }, [points, kind, w, d, wallThickness, plan, item]);
+
+  const { pts, t, floorShape, floorKey, floorMat, wallMat, edges } = geo;
 
   return (
     <group>
-      <mesh position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <shapeGeometry args={[floorShape]} />
-        <meshStandardMaterial color={floorColor} roughness={0.85} side={DoubleSide} />
-      </mesh>
+      <mesh
+        position={[0, 0.02, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
+        receiveShadow
+        geometry={shapeGeo(floorShape, floorKey, tileOf(floorMat))}
+        material={getMaterial({ id: floorMat, color: floorColor, side: DoubleSide })}
+      />
       {edges.map((e, i) => (
         <group key={i} position={[e.mx, 0, e.mz]} rotation={[0, -e.ang, 0]}>
           {e.spans.map(([u0, u1], j) => {
             const spanW = u1 - u0;
             if (spanW <= 0.001) return null;
             const posX = (u0 + u1) / 2 - e.len / 2;
-            return (
-              <mesh key={`s${j}`} position={[posX, h / 2, 0]} castShadow receiveShadow>
-                <boxGeometry args={[spanW, h, t]} />
-                <meshStandardMaterial color={wallColor} roughness={0.9} />
-              </mesh>
-            );
+            return <Box key={`s${j}`} w={spanW} h={h} d={t} x={posX} y={h / 2} mat={wallMat} color={wallColor} rough={0.9} />;
           })}
           {e.ops.map((op, j) => {
             const posX = (op.u0 + op.u1) / 2 - e.len / 2;
@@ -969,16 +1070,10 @@ function RoomShell({ item, w, d, h, kind, points, wallThickness, wallColor, floo
             return (
               <group key={`o${j}`}>
                 {lintelH > 0.01 ? (
-                  <mesh position={[posX, top + lintelH / 2, 0]} castShadow receiveShadow>
-                    <boxGeometry args={[opW, lintelH, t]} />
-                    <meshStandardMaterial color={wallColor} roughness={0.9} />
-                  </mesh>
+                  <Box w={opW} h={lintelH} d={t} x={posX} y={top + lintelH / 2} mat={wallMat} color={wallColor} rough={0.9} />
                 ) : null}
                 {op.sill > 0.01 ? (
-                  <mesh position={[posX, op.sill / 2, 0]} castShadow receiveShadow>
-                    <boxGeometry args={[opW, op.sill, t]} />
-                    <meshStandardMaterial color={wallColor} roughness={0.9} />
-                  </mesh>
+                  <Box w={opW} h={op.sill} d={t} x={posX} y={op.sill / 2} mat={wallMat} color={wallColor} rough={0.9} />
                 ) : null}
               </group>
             );
@@ -1000,10 +1095,13 @@ function Stairs({ w, d, shape, color }) {
       const a = (i / steps) * Math.PI * 1.9;
       const sh = (rise * (i + 1)) / steps;
       parts.push(
-        <mesh key={i} position={[Math.cos(a) * R * 0.6, sh - rise / steps / 2, Math.sin(a) * R * 0.6]} rotation={[0, -a, 0]} castShadow receiveShadow>
-          <boxGeometry args={[R, rise / steps, R * 1.1]} />
-          <meshStandardMaterial color={color} roughness={0.85} />
-        </mesh>
+        <Box
+          key={i}
+          w={R} h={rise / steps} d={R * 1.1}
+          x={Math.cos(a) * R * 0.6} y={sh - rise / steps / 2} z={Math.sin(a) * R * 0.6}
+          ry={-a}
+          mat="wood" color={color} rough={0.85}
+        />
       );
     }
     return <>{parts}</>;
@@ -1012,10 +1110,7 @@ function Stairs({ w, d, shape, color }) {
   for (let i = 0; i < steps; i++) {
     const sh = (rise * (i + 1)) / steps;
     parts.push(
-      <mesh key={i} position={[0, sh / 2, -d / 2 + (i + 0.5) * run]} castShadow receiveShadow>
-        <boxGeometry args={[w, sh, run]} />
-        <meshStandardMaterial color={color} roughness={0.85} />
-      </mesh>
+      <Box key={i} w={w} h={sh} d={run} y={sh / 2} z={-d / 2 + (i + 0.5) * run} mat="wood" color={color} rough={0.85} />
     );
   }
   return <>{parts}</>;
@@ -1026,10 +1121,7 @@ function Ramp({ w, d, h, color }) {
   const len = Math.hypot(d, rise);
   const ang = Math.atan2(rise, d);
   return (
-    <mesh position={[0, rise / 2, 0]} rotation={[-ang, 0, 0]} castShadow receiveShadow>
-      <boxGeometry args={[w, Math.max(h, 0.06), len]} />
-      <meshStandardMaterial color={color} roughness={0.9} />
-    </mesh>
+    <Box w={w} h={Math.max(h, 0.06)} d={len} y={rise / 2} rot={[-ang, 0, 0]} mat="concrete" color={color} rough={0.9} />
   );
 }
 
@@ -1209,7 +1301,7 @@ class ModelBoundary extends Component {
 // If the item's `kind` has a real .glb registered, load and auto-fit it; while
 // it streams in (or if it's missing/errors) we render the procedural build via
 // the Suspense fallback, so the scene never blocks or goes blank.
-export function PlacedItem({ item, cx, cz, wallColor, floorColor, plan }) {
+function PlacedItemImpl({ item, cx, cz, wallColor, floorColor, plan }) {
   const { w, d, h } = itemDims(item);
   const rot = (-item.rotation * Math.PI) / 180;
 
@@ -1238,6 +1330,44 @@ export function PlacedItem({ item, cx, cz, wallColor, floorColor, plan }) {
       ) : (
         procedural
       )}
+      {/* Soft occlusion where the item meets the floor. The real shadow map is far
+          too coarse to resolve this, and it is the main cue that stops furniture
+          from looking like it is hovering. See contactShadow.js. */}
+      {castsContactShadow(item) && (
+        <mesh
+          geometry={SHADOW_GEO}
+          material={SHADOW_MAT}
+          renderOrder={1}
+          scale={[w * SHADOW_SPREAD, 1, d * SHADOW_SPREAD]}
+          position={[0, 0.004, 0]}
+        />
+      )}
     </group>
   );
 }
+
+// Every edit to the plan produces a new `plan` object and a new `furniture` array,
+// but updateFurnitureItem() rebuilds only the item that actually changed — every
+// other item keeps its object identity. So memoising here means moving one chair
+// re-renders one chair's mesh tree instead of all of them.
+//
+// The subtlety is `plan`: its identity changes on every edit, which would defeat
+// the memo entirely. Only structure shells read it (RoomShell scans the furniture
+// list to carve door/window openings into its walls), so plain furniture is
+// allowed to ignore it.
+function placedItemsEqual(a, b) {
+  if (
+    a.item !== b.item ||
+    a.cx !== b.cx ||
+    a.cz !== b.cz ||
+    a.wallColor !== b.wallColor ||
+    a.floorColor !== b.floorColor
+  ) {
+    return false;
+  }
+  // Structure pieces depend on the whole plan; furniture does not.
+  if (a.item?.structure || b.item?.structure) return a.plan === b.plan;
+  return true;
+}
+
+export const PlacedItem = memo(PlacedItemImpl, placedItemsEqual);

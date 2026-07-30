@@ -3,6 +3,18 @@ import { View, Pressable, StyleSheet, ScrollView, Animated, useWindowDimensions 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { Canvas } from '@react-three/fiber/native';
+import PerfProbe from '@/three/PerfProbe';
+
+// Dev-only renderer stats, logged rather than drawn so the UI is untouched.
+// Watch `fps` fall to 0 when the scene is idle (frameloop="demand" working) and
+// `programs` stay in the low teens (material cache working).
+const logPerf = __DEV__
+  ? (s) =>
+      console.log(
+        `[3D] fps=${s.fps} calls=${s.calls} tris=${s.tris} programs=${s.programs} ` +
+          `geo=${s.geometries}/${s.geoCache} tex=${s.textures} mat=${s.matCache}`
+      )
+  : undefined;
 
 import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
@@ -125,14 +137,28 @@ export default function ThreeDViewScreen({ navigation }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // The canvas runs frameloop="demand" (see <Canvas> below), so a frame is drawn
+  // only when something asks for one. kick() is that ask.
+  //
+  // It deliberately does NOT need to be called from every gesture onUpdate. All
+  // three gestures bracket themselves with beginTouch/endTouch, and CameraRig
+  // re-arms itself on every frame while `cam.active > 0` or while it is still
+  // settling. So kicking at the two brackets covers the entire gesture, and the
+  // "one missed invalidate silently freezes the camera" failure mode can't happen.
+  // Only camera mutations made *outside* a gesture need their own kick.
+  const invalidateRef = useRef(null);
+  const kick = () => invalidateRef.current?.();
+
   // Gesture lifecycle helpers: track how many touch gestures are live so the rig
   // pauses momentum/turntable while the user is actively driving the camera.
   const beginTouch = () => {
     cam.active = (cam.active || 0) + 1;
     dismissHints();
+    kick();
   };
   const endTouch = () => {
     cam.active = Math.max(0, (cam.active || 0) - 1);
+    kick(); // let the fling / damping settle out
   };
 
   // Vertical orbit range: from almost straight-down (top-down plan view) past
@@ -175,6 +201,7 @@ export default function ThreeDViewScreen({ navigation }) {
         cam.radius = baseRadius;
         break;
     }
+    kick();
   };
 
   const resetView = () => applyView('iso');
@@ -187,6 +214,7 @@ export default function ThreeDViewScreen({ navigation }) {
         cam.velAz = 0;
         cam.velPolar = 0;
       }
+      kick();
       return next;
     });
   };
@@ -295,6 +323,7 @@ export default function ThreeDViewScreen({ navigation }) {
       const next = !w;
       cam.polar = next ? 1.5 : 0.9;
       cam.radius = next ? baseRadius * 0.5 : baseRadius;
+      kick();
       return next;
     });
   };
@@ -316,8 +345,19 @@ export default function ThreeDViewScreen({ navigation }) {
         style={StyleSheet.absoluteFill}
         camera={{ position: [6, 5, 6], fov: FOV }}
         gl={{ antialias: true }}
+        // Render on demand instead of a permanent 60fps loop. A parked 3D view
+        // previously kept the GPU at full tilt forever, which heats the device
+        // until it thermally throttles — the usual cause of "it was smooth at
+        // first, then got choppy". Scene edits invalidate automatically through
+        // the r3f reconciler; camera motion re-arms itself in CameraRig; and
+        // kick() covers mutations made outside both.
+        frameloop="demand"
+        onCreated={(state) => {
+          invalidateRef.current = state.invalidate;
+        }}
       >
         <Room3D floors={floors} visibleFloors={visibleFloors} lighting={lighting} cam={cam} cutaway={cutaway} />
+        {__DEV__ ? <PerfProbe onSample={logPerf} /> : null}
       </Canvas>
 
       {/* Transparent touch layer sitting on top of the GL surface. R3F/native
