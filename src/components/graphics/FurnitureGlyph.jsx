@@ -4,15 +4,20 @@ import Svg, { Rect, Ellipse, Circle, Line, Path } from 'react-native-svg';
 import { thumbFor } from './itemThumbs';
 import { useTheme } from '@/theme/useTheme';
 
-// 2D item art for catalog/browse tiles. If the kind has a registered PNG
+// 2D item art for catalog/browse tiles. If the item has a registered PNG
 // thumbnail (itemThumbs.js) we show that real image; otherwise we fall back to
 // the theme-tinted vector glyph below. Each glyph draws inside its own viewBox;
 // `size` sets the width.
-export default function FurnitureGlyph({ kind = 'sofa', size = 80, color }) {
+//
+// `catalogId` is optional but preferred: it resolves through the same registry
+// the 3D view uses, so a tile shows the exact product that will be placed
+// (a Chesterfield rather than a generic sofa). Without it the tile falls back to
+// the kind's default model, which is still correct, just less specific.
+export default function FurnitureGlyph({ kind = 'sofa', catalogId, size = 80, color }) {
   const { colors, isDark } = useTheme();
 
   // Real product thumbnail takes precedence over the vector glyph.
-  const thumb = thumbFor(kind);
+  const thumb = thumbFor(kind, catalogId);
   if (thumb) {
     return <Image source={thumb} style={{ width: size, height: size }} resizeMode="contain" />;
   }

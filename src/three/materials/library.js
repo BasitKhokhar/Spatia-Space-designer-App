@@ -24,6 +24,17 @@ const MAX = 800;
 // every cached material so one knob moves the whole scene.
 let envIntensity = 1;
 
+// The mean value the ORM map's green channel was authored around.
+//
+// three computes `roughness = material.roughness * texture.g`, so a map with a
+// mean of 0.85 would silently make every surface 15% glossier than manifest.js
+// says. Dividing the scalar by the same constant the build script normalised to
+// leaves the average appearance exactly as authored, and the map contributes
+// only the per-pixel variation — which is the whole point of shipping it.
+//
+// KEEP THIS IN SYNC WITH ORM_ROUGH_MEAN IN scripts/textures/build-textures.mjs.
+const ORM_ROUGH_MEAN = 0.85;
+
 const round2 = (n) => Math.round(n * 100) / 100;
 
 function keyFor(id, color, rough, metal, opacity, emissive, emissiveIntensity, side) {
@@ -76,16 +87,26 @@ export function getMaterial({
 
   const map = getTexture(def.map);
   const normalMap = getTexture(def.normal);
+  const orm = getTexture(def.orm);
 
   const finalOpacity = opacity ?? def.opacity ?? 1;
   const transparent = def.transparent || finalOpacity < 1;
 
+  // Compensate for the ORM green channel's authored mean so the manifest's
+  // roughness stays the material's true average. Clamped: a material authored
+  // at 0.95 would otherwise exceed 1 and saturate anyway.
+  const baseRough = rough ?? def.rough ?? 0.8;
+  const roughness = orm ? Math.min(1, baseRough / ORM_ROUGH_MEAN) : baseRough;
+
   const mat = new MeshStandardMaterial({
     color: new Color(c),
-    roughness: rough ?? def.rough ?? 0.8,
+    roughness,
     metalness: metal ?? def.metal ?? 0,
     ...(map ? { map } : null),
     ...(normalMap ? { normalMap } : null),
+    // One texture, three channels. aoMap reads the uv1 attribute, which
+    // geometry.js and prepareModel.js both populate alongside uv.
+    ...(orm ? { aoMap: orm, roughnessMap: orm, metalnessMap: orm } : null),
     ...(transparent ? { transparent: true, opacity: finalOpacity } : null),
     ...(emissive ? { emissive: new Color(emissive), emissiveIntensity: emissiveIntensity ?? 1 } : null),
     ...(side != null ? { side } : null),

@@ -138,7 +138,7 @@ const ItemPlacementSheet = forwardRef(function ItemPlacementSheet(
               justifyContent: 'center',
             }}
           >
-            <FurnitureGlyph kind={item.kind} size={38} color={item.color} />
+            <FurnitureGlyph kind={item.kind} catalogId={item.catalogId} size={38} color={item.color} />
           </View>
           <View style={{ flex: 1 }}>
             <Text variant="titleSm" numberOfLines={1}>

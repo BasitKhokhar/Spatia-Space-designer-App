@@ -6,12 +6,12 @@ import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
 import Stepper from '@/components/ui/Stepper';
 import { useTheme } from '@/theme/useTheme';
-import { FLOOR_MATERIALS, WALL_COLORS } from '@/data/materials';
+import { FLOOR_MATERIALS, WALL_MATERIALS, WALL_COLORS } from '@/data/materials';
 import { estimateCost, itemCount, formatMoney } from '@/domain/cost';
 
 // Room-level styling: floor finish, wall colour, size, height + a live budget.
 const RoomStyleSheet = forwardRef(function RoomStyleSheet(
-  { plan, onFloor, onWall, onResize, onHeight },
+  { plan, onFloor, onWall, onWallMaterial, onResize, onHeight },
   ref
 ) {
   const { colors, radius, isDark } = useTheme();
@@ -82,7 +82,43 @@ const RoomStyleSheet = forwardRef(function RoomStyleSheet(
                 })}
               </View>
 
-              {/* Wall colour */}
+              {/* Wall finish — swaps the 3D wall's texture, not just its tint.
+                  Pick Brick here and the construction tools draw real brickwork. */}
+              <Text variant="label" color="ink2" style={{ marginTop: 24 }}>
+                WALL FINISH
+              </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
+                {WALL_MATERIALS.map((m) => {
+                  const active = (materials.wallMaterial || 'plaster') === m.id;
+                  return (
+                    <Pressable
+                      key={m.id}
+                      onPress={() => onWallMaterial?.(m.id)}
+                      style={{ width: '30%' }}
+                    >
+                      <View
+                        style={{
+                          height: 40,
+                          borderRadius: radius.md,
+                          backgroundColor: m.c2d,
+                          borderWidth: active ? 2.5 : 1,
+                          borderColor: active ? colors.accent : colors.line,
+                        }}
+                      />
+                      <Text
+                        variant="caption"
+                        color={active ? 'accent' : 'ink3'}
+                        align="center"
+                        style={{ marginTop: 5 }}
+                      >
+                        {m.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              {/* Wall colour — tints whichever finish is selected above. */}
               <Text variant="label" color="ink2" style={{ marginTop: 20 }}>
                 WALL COLOUR
               </Text>

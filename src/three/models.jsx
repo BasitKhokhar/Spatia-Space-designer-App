@@ -1311,7 +1311,7 @@ function PlacedItemImpl({ item, cx, cz, wallColor, floorColor, plan }) {
     <FurnitureGeometry item={item} w={w} d={d} h={h} />
   );
 
-  const entry = modelFor(item.kind);
+  const entry = modelFor(item.kind, item.catalogId);
 
   // Windows place themselves vertically via their sill (drawn in the builder +
   // carved into the wall), so they opt out of the generic elevation lift to
@@ -1324,7 +1324,7 @@ function PlacedItemImpl({ item, cx, cz, wallColor, floorColor, plan }) {
       {entry ? (
         <ModelBoundary fallback={procedural}>
           <Suspense fallback={procedural}>
-            <ModelItem entry={entry} w={w} d={d} h={h} />
+            <ModelItem entry={entry} w={w} d={d} h={h} color={item.color} />
           </Suspense>
         </ModelBoundary>
       ) : (

@@ -26,6 +26,16 @@ import {
 
 const CACHE = new Map();
 
+// three's aoMap samples the `uv1` attribute, not `uv`. Our AO arrives packed in
+// the R channel of the same ORM texture the roughness comes from, so the two
+// must share one projection — pointing uv1 at the identical attribute object is
+// both correct and free (no second buffer, no second GPU upload).
+function shareUV1(geo) {
+  const uv = geo.attributes.uv;
+  if (uv && !geo.attributes.uv1) geo.setAttribute('uv1', uv);
+  return geo;
+}
+
 // Sized so a realistic scene never evicts. A furnished two-floor plan can ask for
 // well over a thousand distinct box sizes (every builder derives its parts from
 // the item's own w/d/h), and a cap below that would thrash — rebuilding geometry
@@ -44,7 +54,7 @@ function remember(key, build) {
     CACHE.set(key, hit);
     return hit;
   }
-  const geo = build();
+  const geo = shareUV1(build());
   if (CACHE.size >= MAX) {
     // Evict by dropping the reference ONLY — never dispose().
     //

@@ -13,3 +13,8 @@ yarn-error.*
 android/
 ios/
 *.orig.*
+
+# Downloaded ambientCG source archives (~135MB). Pure cache for
+# scripts/textures/build-textures.mjs — re-downloaded on demand. Only the
+# processed output in src/assets/textures/ belongs in the repo.
+scripts/textures/.cache/

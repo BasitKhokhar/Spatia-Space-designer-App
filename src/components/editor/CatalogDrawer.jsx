@@ -342,7 +342,7 @@ function DrawerItemRow({ item, paid, cost, colors, radius, isDark, onAdd, onDrag
         }}
       >
         {/* tool shape — centered */}
-        <FurnitureGlyph kind={item.kind} size={44} color={item.colors?.[0]} />
+        <FurnitureGlyph kind={item.kind} catalogId={item.id} size={44} color={item.colors?.[0]} />
 
         {/* free / paid tag, tucked into top-right corner */}
         <View

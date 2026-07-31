@@ -18,7 +18,7 @@ export default function FurnitureCard({ item, onAdd, locked = false, style }) {
   return (
     <Card padded={false} style={[{ overflow: 'hidden' }, style]}>
       <LinearGradient colors={[from, to]} style={{ height: 118, alignItems: 'center', justifyContent: 'center' }}>
-        <FurnitureGlyph kind={item.kind} size={78} color={item.colors?.[0]} />
+        <FurnitureGlyph kind={item.kind} catalogId={item.id} size={78} color={item.colors?.[0]} />
       </LinearGradient>
       <Pressable
         onPress={onAdd}

@@ -1877,7 +1877,7 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
             justifyContent: 'center',
           }}
         >
-          <FurnitureGlyph kind={dragGhost.item.kind} size={62} color={dragGhost.item.colors?.[0]} />
+          <FurnitureGlyph kind={dragGhost.item.kind} catalogId={dragGhost.item.id} size={62} color={dragGhost.item.colors?.[0]} />
         </View>
       ) : null}
 
@@ -1939,6 +1939,7 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
         plan={plan}
         onFloor={(id) => applyCommit((p) => setMaterials(p, { floor: id }))}
         onWall={(hex) => applyCommit((p) => setMaterials(p, { wall: hex }))}
+        onWallMaterial={(id) => applyCommit((p) => setMaterials(p, { wallMaterial: id }))}
         onResize={(w, l) => applyCommit((p) => resizePlan(p, w, l))}
         onHeight={(h) => applyCommit((p) => ({ ...p, wallHeight: h }))}
       />

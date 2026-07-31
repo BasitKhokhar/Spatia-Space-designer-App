@@ -39,6 +39,8 @@ import { TextureLoader, SRGBColorSpace, NoColorSpace, RepeatWrapping } from 'thr
 const FILES = {
   // --- albedo, 512x512 JPEG, sRGB ---
   wood_floor: require('@/assets/textures/wood_floor.jpg'),
+  wood_plank: require('@/assets/textures/wood_plank.jpg'),
+  wood_herringbone: require('@/assets/textures/wood_herringbone.jpg'),
   wood: require('@/assets/textures/wood.jpg'),
   tile_sq: require('@/assets/textures/tile_sq.jpg'),
   marble: require('@/assets/textures/marble.jpg'),
@@ -48,20 +50,44 @@ const FILES = {
   brick: require('@/assets/textures/brick.jpg'),
   fabric: require('@/assets/textures/fabric.jpg'),
   leather: require('@/assets/textures/leather.jpg'),
+  stone: require('@/assets/textures/stone.jpg'),
 
   // --- normal maps, 256x256 PNG, linear ---
   // Only shipped where the source actually has measurable relief. Wood066, the
   // tile and plaster all measured essentially flat, so their normals were dropped
   // rather than shipped as dead weight — see scripts/textures/build-textures.mjs.
   wood_floor_n: require('@/assets/textures/wood_floor_n.png'),
+  wood_plank_n: require('@/assets/textures/wood_plank_n.png'),
+  wood_herringbone_n: require('@/assets/textures/wood_herringbone_n.png'),
   carpet_n: require('@/assets/textures/carpet_n.png'),
   brick_n: require('@/assets/textures/brick_n.png'),
   fabric_n: require('@/assets/textures/fabric_n.png'),
   leather_n: require('@/assets/textures/leather_n.png'),
+  stone_n: require('@/assets/textures/stone_n.png'),
+
+  // --- packed ORM, 256x256 JPEG, linear ---
+  // R = ambient occlusion, G = roughness, B = metalness. One texture drives
+  // aoMap + roughnessMap + metalnessMap, so per-pixel roughness — the thing that
+  // stops a surface reading as plastic — costs ~25KB instead of three maps.
+  wood_floor_orm: require('@/assets/textures/wood_floor_orm.jpg'),
+  wood_plank_orm: require('@/assets/textures/wood_plank_orm.jpg'),
+  wood_herringbone_orm: require('@/assets/textures/wood_herringbone_orm.jpg'),
+  wood_orm: require('@/assets/textures/wood_orm.jpg'),
+  tile_sq_orm: require('@/assets/textures/tile_sq_orm.jpg'),
+  marble_orm: require('@/assets/textures/marble_orm.jpg'),
+  concrete_orm: require('@/assets/textures/concrete_orm.jpg'),
+  carpet_orm: require('@/assets/textures/carpet_orm.jpg'),
+  plaster_orm: require('@/assets/textures/plaster_orm.jpg'),
+  brick_orm: require('@/assets/textures/brick_orm.jpg'),
+  fabric_orm: require('@/assets/textures/fabric_orm.jpg'),
+  leather_orm: require('@/assets/textures/leather_orm.jpg'),
+  stone_orm: require('@/assets/textures/stone_orm.jpg'),
 };
 
-// Keys ending in this suffix are treated as linear (non-color) data.
-const isNormalKey = (key) => key.endsWith('_n');
+// Keys with these suffixes hold measurements, not colour, and must stay linear —
+// running them through the sRGB decode would apply a gamma curve to surface
+// slopes and roughness values and quietly break the lighting maths.
+const isLinearKey = (key) => key.endsWith('_n') || key.endsWith('_orm');
 
 // ---------------------------------------------------------------------------
 // Cache
@@ -111,10 +137,15 @@ export function getTexture(key) {
         console.warn(`[3D] texture "${key}" failed to load:`, err?.message || err);
       }
     );
-    tex.colorSpace = isNormalKey(key) ? NoColorSpace : SRGBColorSpace;
+    tex.colorSpace = isLinearKey(key) ? NoColorSpace : SRGBColorSpace;
     tex.wrapS = RepeatWrapping;
     tex.wrapT = RepeatWrapping;
-    tex.anisotropy = 4;
+    // Anisotropic filtering is the single biggest sharpness win in this app:
+    // floors are almost always viewed at a grazing angle, where isotropic
+    // mipmapping blurs the grain into mush a couple of metres out. 8 is well
+    // within every GLES3 driver's max (typically 16) and costs only sample
+    // bandwidth on the surfaces that actually need it.
+    tex.anisotropy = 8;
   } catch (e) {
     console.warn(`[3D] texture "${key}" threw on load:`, e?.message || e);
     tex = null;

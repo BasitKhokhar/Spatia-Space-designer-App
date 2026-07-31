@@ -170,6 +170,71 @@ function solidSpans(L, intervals) {
   return spans;
 }
 
+// ---------------------------------------------------------------------------
+// Trim
+// ---------------------------------------------------------------------------
+//
+// Skirting boards and door/window casings. These are the cheapest realism win
+// in the whole renderer: a flat plane meeting a flat plane at a hard right angle
+// is the single strongest "this is a diagram" cue, and every real room breaks
+// that line with trim. Each piece is one shared-cache box with an existing
+// material, so this adds draw calls bounded by WALL count, not furniture count,
+// and not one new shader program.
+//
+// Trim is painted, not papered — real interiors run white trim against a
+// coloured wall, and it also gives the eye a reference tone that makes the wall
+// colour read correctly.
+const TRIM_MAT = 'paint';
+const TRIM_COLOR = '#F4F1EA';
+
+const BASEBOARD_H = 0.1; // skirting height
+const BASEBOARD_PROUD = 0.015; // how far it stands off the wall face, per side
+const CASING_W = 0.06; // door/window architrave width
+const CASING_PROUD = 0.02;
+
+// Architrave around one opening, in the wall's local frame (x along the wall,
+// y up from the floor, z through the wall's thickness).
+function Casing({ localX, w, t, sill, height, window: isWindow }) {
+  const d = t + CASING_PROUD * 2;
+  const top = sill + height;
+  const outerW = w + CASING_W * 2;
+  const trim = getMaterial({ id: TRIM_MAT, color: TRIM_COLOR, rough: 0.7 });
+  // The jambs run from the sill (windows) or the floor (doors) up to the head.
+  const jambH = height + CASING_W;
+  return (
+    <group position={[localX, 0, 0]}>
+      <mesh
+        position={[-(w + CASING_W) / 2, sill + jambH / 2, 0]}
+        receiveShadow
+        geometry={boxGeo(CASING_W, jambH, d)}
+        material={trim}
+      />
+      <mesh
+        position={[(w + CASING_W) / 2, sill + jambH / 2, 0]}
+        receiveShadow
+        geometry={boxGeo(CASING_W, jambH, d)}
+        material={trim}
+      />
+      <mesh
+        position={[0, top + CASING_W / 2, 0]}
+        receiveShadow
+        geometry={boxGeo(outerW, CASING_W, d)}
+        material={trim}
+      />
+      {/* Window board — the shelf a window sits on. Doors meet the floor, so
+          they get no bottom piece. */}
+      {isWindow && sill > 0.01 ? (
+        <mesh
+          position={[0, sill - CASING_W / 2, 0]}
+          receiveShadow
+          geometry={boxGeo(outerW, CASING_W, d + CASING_PROUD * 2)}
+          material={trim}
+        />
+      ) : null}
+    </group>
+  );
+}
+
 // A wall segment rendered as boxes, with door/window openings cut out.
 // `outward` (optional [x,z] normal) tags a perimeter wall so the cutaway culling
 // can hide it when the camera is on its outer side.
@@ -211,6 +276,24 @@ function WallMesh({ wall, cx, cz, height, color, openings, outward, mat = 'plast
         );
       })}
 
+      {/* skirting, on the solid spans only — it must not run across a doorway.
+          One box per span covers BOTH wall faces (it is proud on each side), and
+          it deliberately does not cast: a 10cm strip contributes nothing but
+          noise to the shadow map. */}
+      {spans.map(([u0, u1], i) => {
+        const w = u1 - u0;
+        if (w <= 0.001) return null;
+        return (
+          <mesh
+            key={`bb${i}`}
+            position={[(u0 + u1) / 2 - L / 2, BASEBOARD_H / 2, 0]}
+            receiveShadow
+            geometry={boxGeo(w, BASEBOARD_H, t + BASEBOARD_PROUD * 2)}
+            material={getMaterial({ id: TRIM_MAT, color: TRIM_COLOR, rough: 0.7 })}
+          />
+        );
+      })}
+
       {/* per-opening: lintel above, sill below (windows), glass pane */}
       {ops.map((o, i) => {
         const localX = (o.u0 + o.u1) / 2 - L / 2;
@@ -237,6 +320,11 @@ function WallMesh({ wall, cx, cz, height, color, openings, outward, mat = 'plast
                 material={getMaterial({ id: mat, color })}
               />
             ) : null}
+            {/* architrave: two jambs + a head, each proud of both wall faces.
+                Windows get a fourth piece at the sill, which is what makes an
+                opening read as a fitted window rather than a hole. */}
+            <Casing localX={localX} w={w} t={t} sill={o.sill} height={o.height} window={o.kind === 'window'} />
+
             {o.kind === 'window' ? (
               <mesh
                 position={[localX, o.sill + o.height / 2, 0]}
@@ -458,12 +546,41 @@ export default function Room3D({ plan, floors, visibleFloors, lighting = 'golden
   const camState = cam || fallback;
   const groundMat = floorMaterialById(levels[0].plan.materials?.floor);
 
+  // Shadow-camera fitting.
+  //
+  // The old frustum was a fixed ±span box, which is twice the building's own
+  // half-extent on each axis — four times the area, so three quarters of the
+  // shadow map covered empty space. The bounding SPHERE of the building is the
+  // tightest bound that stays correct for every light direction (an axis-aligned
+  // box would clip as the sun moves), and it is a one-line computation.
+  const shadow = useMemo(() => {
+    const d = preset.directional.position;
+    const len = Math.hypot(d[0], d[1], d[2]) || 1;
+    // Where the sun sits. Kept at the previous distance so shadow direction and
+    // softness are unchanged — only the frustum tightens.
+    const pos = [d[0] * span * 0.5, d[1] * span * 0.5 + totalH, d[2] * span * 0.5];
+    const dist = Math.hypot(pos[0], pos[1], pos[2]) || 1;
+    // Half-diagonal of the width x length x height box, centered on the origin.
+    const radius = 0.5 * Math.hypot(span, span, totalH);
+    return {
+      pos,
+      radius,
+      // Clamp the near plane above zero — a near of 0 destroys depth precision
+      // across the whole map, which shows up as shadow acne on flat floors.
+      near: Math.max(0.5, dist - radius),
+      far: dist + radius * 2,
+      len,
+    };
+  }, [preset, span, totalH]);
+
   return (
     <>
       <color attach="background" args={[preset.background]} />
-      {/* distance haze — reads as depth on exterior views, and hides the hard
-          horizon where the ground plane meets the background color */}
-      <fog attach="fog" args={[preset.background, span * 2.5, span * 9]} />
+      {/* No distance fog. There is no ground plane in this scene, so fog has
+          nothing to haze except the building — and since the fog color matches
+          the background, zooming out past ~2.5x span dissolved the model into
+          the backdrop. Zoom goes to span * 7, so any fog near plane inside that
+          range washes out the subject. */}
       {/* Indirect light for every meshStandardMaterial in the scene. Everything
           below is only the *direct* term — without this the PBR shader has no
           ambient specular at all, which is what made the old render read flat. */}
@@ -481,16 +598,16 @@ export default function Room3D({ plan, floors, visibleFloors, lighting = 'golden
       <directionalLight
         color={preset.directional.color}
         intensity={preset.directional.intensity}
-        position={[preset.directional.position[0] * span * 0.5, preset.directional.position[1] * span * 0.5 + totalH, preset.directional.position[2] * span * 0.5]}
+        position={shadow.pos}
         castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
-        shadow-camera-near={0.5}
-        shadow-camera-far={(span + totalH) * 4}
-        shadow-camera-left={-span}
-        shadow-camera-right={span}
-        shadow-camera-top={span}
-        shadow-camera-bottom={-span}
+        shadow-mapSize-width={2048}
+        shadow-mapSize-height={2048}
+        shadow-camera-near={shadow.near}
+        shadow-camera-far={shadow.far}
+        shadow-camera-left={-shadow.radius}
+        shadow-camera-right={shadow.radius}
+        shadow-camera-top={shadow.radius}
+        shadow-camera-bottom={-shadow.radius}
         shadow-normalBias={0.02}
         shadow-bias={-0.0001}
       />

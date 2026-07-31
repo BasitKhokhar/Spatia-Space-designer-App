@@ -1,10 +1,21 @@
 // Build the bundled tiling-texture set from ambientCG (CC0).
 //
 // WHAT THIS DOES
-//   1. Downloads the 1K-JPG archive for each material listed in MATERIALS below.
-//   2. Extracts the Color and NormalGL maps.
-//   3. Resizes to 512x512, desaturates the albedo toward neutral grey, and writes
-//      JPEG (albedo) / PNG (normal) into src/assets/textures/.
+//   1. Downloads the 1K-JPG archive for each material listed in MATERIALS below
+//      (or reads an already-downloaded folder via `dir`).
+//   2. Extracts the Color, NormalGL, Roughness and AmbientOcclusion maps.
+//   3. Resizes, desaturates the albedo toward neutral grey, and writes
+//      JPEG (albedo) / PNG (normal) / JPEG (packed ORM) into src/assets/textures/.
+//
+// WHY A PACKED ORM MAP
+// Uniform roughness is the main reason a PBR surface still reads as plastic:
+// every point on a floor catches the light identically, which never happens in
+// reality. three can read occlusion, roughness and metalness from the R, G and B
+// channels of ONE texture, so per-pixel roughness costs a single extra ~25KB
+// JPEG per material rather than three separate maps.
+//   R = AmbientOcclusion  (255 = unoccluded, used when the source has no AO map)
+//   G = Roughness         (normalised, see ORM_ROUGH_MEAN below)
+//   B = Metalness         (255 = pass-through; the material's own scalar decides)
 //
 // WHY DESATURATE THE ALBEDO
 // three's standard shader multiplies material.color by the albedo map. Authoring
@@ -44,13 +55,38 @@ const ROOT = resolve(HERE, '../..');
 const OUT = process.env.TEXTURE_OUT || join(ROOT, 'src/assets/textures');
 const CACHE = process.env.TEXTURE_CACHE || join(HERE, '.cache');
 
+// Where locally-downloaded ambientCG sets live (the ones already unzipped by
+// hand). Anything with a `dir` is read from here instead of being fetched.
+const LOCAL = process.env.TEXTURE_LOCAL || resolve(ROOT, '../assetss');
+
 const SIZE = 512;
 // Normals are deliberately half the albedo resolution. They carry low-frequency
 // surface slope, not detail, so 256 is visually indistinguishable at phone zoom
 // while being 4x smaller — and PNG normals are by far the biggest thing we ship
 // (a 512 normal is 200-700KB against a 512 albedo's 10-90KB).
 const NORMAL_SIZE = 256;
+// ORM carries low-frequency "how worn is this patch" information, not detail —
+// 256 is ample, and it keeps the whole set under a quarter of a megabyte.
+const ORM_SIZE = 256;
 const JPEG_QUALITY = 82;
+// Packed channels must NOT be chroma-subsampled: 4:2:0 averages colour across
+// 2x2 blocks, which bleeds the roughness channel into the AO channel and back.
+const ORM_QUALITY = 88;
+
+// Mean brightness the roughness channel is normalised to, as a 0..1 fraction.
+//
+// three multiplies material.roughness by the map's green channel, so a map
+// averaging 0.5 would halve every authored roughness in manifest.js and turn the
+// whole app glossy. Normalising to a known mean lets the runtime divide it back
+// out (see the matching constant in three/materials/library.js), which leaves
+// the average appearance exactly as authored and adds only the per-pixel
+// variation we actually want.
+//
+// KEEP THIS IN SYNC WITH ORM_ROUGH_MEAN IN src/three/materials/library.js.
+const ORM_ROUGH_MEAN = 0.85;
+// How much of the source's roughness contrast to keep. Full contrast on a 1K
+// source produces speckle at phone viewing distance; this reads as variation.
+const ORM_ROUGH_CONTRAST = 0.9;
 
 // Every albedo is normalised to this average brightness.
 //
@@ -70,8 +106,15 @@ const TARGET_MEAN = 178;
 // `normal` is enabled only where surface relief actually reads at typical viewing
 // distance. Marble, concrete and plaster are near-flat in a room-scale view, so
 // their normal maps cost hundreds of KB to change essentially nothing.
+// `orm` emits the packed occlusion/roughness/metalness map. On by default for
+// everything that carries a texture — a Roughness map ships with every ambientCG
+// set, and it is the cheapest realism per kilobyte in the whole pipeline.
+// `dir` reads an already-unzipped set from LOCAL instead of downloading.
 const MATERIALS = [
   { key: 'wood_floor', asset: 'WoodFloor043', normal: true, saturation: 0.35 },
+  // The two sets already downloaded by hand — no network needed for these.
+  { key: 'wood_plank', asset: 'WoodFloor008', dir: 'WoodFloor008_1K-JPG', normal: true, saturation: 0.35 },
+  { key: 'wood_herringbone', asset: 'WoodFloor051', dir: 'WoodFloor051_1K-JPG', normal: true, saturation: 0.35 },
   // Wood066's normal map measures essentially flat (sd 0.5) — the grain is all in
   // the albedo, so shipping the normal would be weight for no visible gain.
   { key: 'wood', asset: 'Wood066', normal: false, saturation: 0.35 },
@@ -87,6 +130,9 @@ const MATERIALS = [
   // Leather is inherently low-contrast in albedo; its character comes almost
   // entirely from grain relief, so the normal map is the important half here.
   { key: 'leather', asset: 'Leather030', normal: true, saturation: 0.4 },
+  // `stone` was declared in manifest.js with map:null from the start — it has
+  // been rendering as flat colour ever since. PavingStones gives it real relief.
+  { key: 'stone', asset: 'PavingStones070', normal: true, saturation: 0.4 },
 ];
 
 const sh = (cmd, args) => execFileSync(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -120,6 +166,78 @@ function findMap(dir, needle) {
   return hit ? join(dir, hit) : null;
 }
 
+/** Resolve a material's source folder, downloading only if it isn't local. */
+function sourceDir(m) {
+  if (m.dir) {
+    const local = join(LOCAL, m.dir);
+    if (!existsSync(local)) throw new Error(`local set not found: ${local}`);
+    return local;
+  }
+  return extract(download(m.asset), m.asset);
+}
+
+// ---------------------------------------------------------------------------
+// Packed ORM
+// ---------------------------------------------------------------------------
+
+/**
+ * One 8-bit greyscale plane at `size`, or a constant fill when the source map is
+ * absent. ambientCG is not consistent about which maps ship — WoodFloor008 has
+ * no AmbientOcclusion while WoodFloor051 does — so every channel must tolerate a
+ * missing source rather than assuming a uniform set.
+ */
+async function plane(sharp, src, size, fill) {
+  if (!src) return Buffer.alloc(size * size, fill);
+  const { data } = await sharp(src)
+    .resize(size, size, { fit: 'fill' })
+    .greyscale()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  return data;
+}
+
+/** Recentre a roughness plane on ORM_ROUGH_MEAN, keeping part of its contrast. */
+function normaliseRoughness(data) {
+  let sum = 0;
+  for (let i = 0; i < data.length; i++) sum += data[i];
+  const mean = sum / data.length || 1;
+  const target = ORM_ROUGH_MEAN * 255;
+  const out = Buffer.alloc(data.length);
+  for (let i = 0; i < data.length; i++) {
+    const v = target + (data[i] - mean) * ORM_ROUGH_CONTRAST;
+    out[i] = v < 0 ? 0 : v > 255 ? 255 : Math.round(v);
+  }
+  return { out, mean };
+}
+
+async function buildORM(sharp, dir, outPath) {
+  const roughSrc = findMap(dir, '_roughness');
+  if (!roughSrc) return null; // no roughness => nothing worth packing
+
+  const aoSrc = findMap(dir, '_ambientocclusion');
+
+  const rough = await plane(sharp, roughSrc, ORM_SIZE, 255);
+  // 255 = fully unoccluded, which is three's no-op for aoMap.
+  const ao = await plane(sharp, aoSrc, ORM_SIZE, 255);
+  const { out: roughN, mean } = normaliseRoughness(rough);
+
+  const n = ORM_SIZE * ORM_SIZE;
+  const rgb = Buffer.alloc(n * 3);
+  for (let i = 0; i < n; i++) {
+    rgb[i * 3] = ao[i];
+    rgb[i * 3 + 1] = roughN[i];
+    // 255 = pass-through: metalness is decided by the material's own scalar, so
+    // a future metallic material is not silently forced to zero here.
+    rgb[i * 3 + 2] = 255;
+  }
+
+  await sharp(rgb, { raw: { width: ORM_SIZE, height: ORM_SIZE, channels: 3 } })
+    .jpeg({ quality: ORM_QUALITY, chromaSubsampling: '4:4:4', mozjpeg: true })
+    .toFile(outPath);
+
+  return { hasAO: !!aoSrc, sourceMean: mean };
+}
+
 async function main() {
   const sharp = (await import('sharp')).default;
 
@@ -127,9 +245,20 @@ async function main() {
   mkdirSync(OUT, { recursive: true });
 
   const written = [];
+  const failed = [];
   for (const m of MATERIALS) {
     console.log(`\n${m.key}  (${m.asset})`);
-    const dir = extract(download(m.asset), m.asset);
+    let dir;
+    try {
+      dir = sourceDir(m);
+    } catch (e) {
+      // One unreachable asset must not cost the whole run. The material keeps
+      // whatever files it already has, and getTexture() degrades to flat colour
+      // for anything genuinely missing.
+      failed.push(`${m.key}: ${e.message}`);
+      console.warn(`  !  skipped — ${e.message}`);
+      continue;
+    }
 
     const colorSrc = findMap(dir, '_color');
     if (!colorSrc) throw new Error(`no Color map found for ${m.asset}`);
@@ -186,11 +315,30 @@ async function main() {
         console.log('  !  no normal map in archive, skipping');
       }
     }
+
+    if (m.orm !== false) {
+      const ormOut = join(OUT, `${m.key}_orm.jpg`);
+      const orm = await buildORM(sharp, dir, ormOut);
+      if (orm) {
+        written.push(ormOut);
+        console.log(
+          `  -> ${m.key}_orm.jpg ${(statSync(ormOut).size / 1024).toFixed(0)}KB ` +
+            `(rough mean ${orm.sourceMean.toFixed(0)} -> ${(ORM_ROUGH_MEAN * 255).toFixed(0)}` +
+            `${orm.hasAO ? ', +AO' : ', no AO in set'})`
+        );
+      } else {
+        console.log('  !  no roughness map in archive, no ORM emitted');
+      }
+    }
   }
 
   const total = written.reduce((n, f) => n + statSync(f).size, 0);
   console.log(`\n${written.length} files, ${(total / 1048576).toFixed(2)}MB total in src/assets/textures/`);
-  console.log('Now uncomment the matching lines in src/three/materials/textures.js.');
+  if (failed.length) {
+    console.warn(`\n${failed.length} material(s) skipped:`);
+    failed.forEach((f) => console.warn('  ' + f));
+  }
+  console.log('Now add the matching lines to FILES in src/three/materials/textures.js.');
 }
 
 main().catch((e) => {

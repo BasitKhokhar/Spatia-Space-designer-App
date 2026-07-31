@@ -18,6 +18,9 @@
 //            every object scale in the app without per-object tuning.
 //   map      albedo texture key (see textures.js), or null for flat color
 //   normal   normal map key, or omitted
+//   orm      packed occlusion/roughness/metalness key (R/G/B), or omitted.
+//            The G channel is authored around ORM_ROUGH_MEAN so that
+//            `rough` below stays the material's true average — see library.js.
 //   opacity / transparent  for glass
 //
 // TINTING
@@ -28,33 +31,35 @@
 
 export const MATERIAL_DEFS = {
   // --- floors -------------------------------------------------------------
-  oak: { group: 'floor', base: '#D8B98C', rough: 0.72, tile: [1.2, 1.2], map: 'wood_floor', normal: 'wood_floor_n' },
-  walnut: { group: 'floor', base: '#7C5A3C', rough: 0.62, tile: [1.2, 1.2], map: 'wood_floor', normal: 'wood_floor_n' },
-  ash: { group: 'floor', base: '#BBB4A8', rough: 0.85, tile: [1.2, 1.2], map: 'wood_floor', normal: 'wood_floor_n' },
-  tile: { group: 'floor', base: '#D3D8DB', rough: 0.35, tile: [0.6, 0.6], map: 'tile_sq' },
-  marble: { group: 'floor', base: '#E6E2DB', rough: 0.16, tile: [2.4, 2.4], map: 'marble' },
-  concrete: { group: 'floor', base: '#A9A8A4', rough: 0.9, tile: [2.0, 2.0], map: 'concrete' },
-  carpet: { group: 'floor', base: '#B49C90', rough: 1.0, tile: [0.8, 0.8], map: 'carpet', normal: 'carpet_n' },
-  terracotta: { group: 'floor', base: '#C07A54', rough: 0.85, tile: [0.5, 0.5], map: 'tile_sq' },
+  oak: { group: 'floor', base: '#D8B98C', rough: 0.72, tile: [1.2, 1.2], map: 'wood_floor', normal: 'wood_floor_n', orm: 'wood_floor_orm' },
+  walnut: { group: 'floor', base: '#7C5A3C', rough: 0.62, tile: [1.2, 1.2], map: 'wood_floor', normal: 'wood_floor_n', orm: 'wood_floor_orm' },
+  ash: { group: 'floor', base: '#BBB4A8', rough: 0.85, tile: [1.2, 1.2], map: 'wood_floor', normal: 'wood_floor_n', orm: 'wood_floor_orm' },
+  // Wide-plank and herringbone are distinct board layouts, not tints, so they
+  // get their own source rather than another colourway of wood_floor.
+  plank: { group: 'floor', base: '#CDAA80', rough: 0.7, tile: [1.6, 1.6], map: 'wood_plank', normal: 'wood_plank_n', orm: 'wood_plank_orm' },
+  herringbone: { group: 'floor', base: '#C9A276', rough: 0.68, tile: [1.0, 1.0], map: 'wood_herringbone', normal: 'wood_herringbone_n', orm: 'wood_herringbone_orm' },
+  tile: { group: 'floor', base: '#D3D8DB', rough: 0.35, tile: [0.6, 0.6], map: 'tile_sq', orm: 'tile_sq_orm' },
+  marble: { group: 'floor', base: '#E6E2DB', rough: 0.16, tile: [2.4, 2.4], map: 'marble', orm: 'marble_orm' },
+  concrete: { group: 'floor', base: '#A9A8A4', rough: 0.9, tile: [2.0, 2.0], map: 'concrete', orm: 'concrete_orm' },
+  carpet: { group: 'floor', base: '#B49C90', rough: 1.0, tile: [0.8, 0.8], map: 'carpet', normal: 'carpet_n', orm: 'carpet_orm' },
+  terracotta: { group: 'floor', base: '#C07A54', rough: 0.85, tile: [0.5, 0.5], map: 'tile_sq', orm: 'tile_sq_orm' },
 
   // --- walls --------------------------------------------------------------
-  plaster: { group: 'wall', base: '#FFFFFF', rough: 0.94, tile: [2.0, 2.0], map: 'plaster' },
-  brick: { group: 'wall', base: '#B4705A', rough: 0.9, tile: [1.0, 1.0], map: 'brick', normal: 'brick_n' },
+  plaster: { group: 'wall', base: '#FFFFFF', rough: 0.94, tile: [2.0, 2.0], map: 'plaster', orm: 'plaster_orm' },
+  brick: { group: 'wall', base: '#B4705A', rough: 0.9, tile: [1.0, 1.0], map: 'brick', normal: 'brick_n', orm: 'brick_orm' },
   // Flat paint — no texture at all. The default for walls and for any builder
   // part that has not been given a specific material.
   paint: { group: 'wall', base: '#FFFFFF', rough: 0.9, map: null },
 
   // --- item finishes ------------------------------------------------------
-  wood: { group: 'item', base: '#FFFFFF', rough: 0.6, tile: [0.8, 0.8], map: 'wood' },
-  fabric: { group: 'item', base: '#FFFFFF', rough: 0.95, tile: [0.35, 0.35], map: 'fabric', normal: 'fabric_n' },
-  leather: { group: 'item', base: '#FFFFFF', rough: 0.55, tile: [0.5, 0.5], map: 'leather', normal: 'leather_n' },
+  wood: { group: 'item', base: '#FFFFFF', rough: 0.6, tile: [0.8, 0.8], map: 'wood', orm: 'wood_orm' },
+  fabric: { group: 'item', base: '#FFFFFF', rough: 0.95, tile: [0.35, 0.35], map: 'fabric', normal: 'fabric_n', orm: 'fabric_orm' },
+  leather: { group: 'item', base: '#FFFFFF', rough: 0.55, tile: [0.5, 0.5], map: 'leather', normal: 'leather_n', orm: 'leather_orm' },
   metal: { group: 'item', base: '#FFFFFF', rough: 0.32, metal: 0.85, map: null },
   chrome: { group: 'item', base: '#DFE3E6', rough: 0.12, metal: 1.0, map: null },
   glass: { group: 'item', base: '#9FC4DC', rough: 0.05, metal: 0, map: null, transparent: true, opacity: 0.32 },
   plastic: { group: 'item', base: '#FFFFFF', rough: 0.45, map: null },
-  // No texture shipped yet — renders as flat color until one is added to the
-  // registry, which is the intended graceful-degradation path for every material.
-  stone: { group: 'item', base: '#FFFFFF', rough: 0.75, tile: [1.0, 1.0], map: null },
+  stone: { group: 'item', base: '#FFFFFF', rough: 0.75, tile: [1.0, 1.0], map: 'stone', normal: 'stone_n', orm: 'stone_orm' },
   // Emissive-ish soft surfaces (lampshades, screens) still use paint + the
   // builder's own emissive props; no separate def needed.
 

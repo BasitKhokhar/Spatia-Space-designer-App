@@ -345,6 +345,12 @@ export default function ThreeDViewScreen({ navigation }) {
         style={StyleSheet.absoluteFill}
         camera={{ position: [6, 5, 6], fov: FOV }}
         gl={{ antialias: true }}
+        // Cap the render resolution at 2x. With no dpr the canvas renders at the
+        // device's native ratio — 2.75-3x on a modern phone, which is 2x the
+        // fragments of a 2x buffer for detail nobody can resolve at arm's
+        // length. The freed GPU budget pays for the 2048 shadow map, 8x
+        // anisotropy and the real furniture models.
+        dpr={[1, 2]}
         // Render on demand instead of a permanent 60fps loop. A parked 3D view
         // previously kept the GPU at full tilt forever, which heats the device
         // until it thermally throttles — the usual cause of "it was smooth at
