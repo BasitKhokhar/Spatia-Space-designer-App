@@ -16,5 +16,11 @@ export const CREDITS = {
 // a .env at the project root, or via EAS) to attach the real backend, e.g.
 //   EXPO_PUBLIC_API_BASE_URL=http://10.0.2.2:5004   (Android emulator -> host)
 //   EXPO_PUBLIC_API_BASE_URL=https://api.homedesigner.app
-export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL || process.env.API_BASE_URL || '';
+// Trailing slash is stripped: every caller passes a leading-slash path, so a
+// base of ".../" would produce "//auth/users/login" — which some proxies pass
+// through verbatim and Express then fails to route.
+export const API_BASE_URL = (
+  process.env.EXPO_PUBLIC_API_BASE_URL ||
+  process.env.API_BASE_URL ||
+  ''
+).replace(/\/+$/, '');

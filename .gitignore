@@ -14,6 +14,12 @@ android/
 ios/
 *.orig.*
 
+# Release signing material. Lives outside android/ so `expo prebuild --clean`
+# can't delete it. Back it up off-machine — it is unrecoverable.
+credentials/
+*.keystore
+*.jks
+
 # Downloaded ambientCG source archives (~135MB). Pure cache for
 # scripts/textures/build-textures.mjs — re-downloaded on demand. Only the
 # processed output in src/assets/textures/ belongs in the repo.

@@ -12,8 +12,8 @@ const ADMOB_ANDROID_APP_ID =
 const ADMOB_IOS_APP_ID =
   env.ADMOB_IOS_APP_ID || 'ca-app-pub-3940256099942544~1458002511';
 const EAS_PROJECT_ID = env.EXPO_ID || 'aa4c6755-9123-4c2d-bf10-3a3d815074f0';
-const PRIVACY_POLICY_URL = env.PRIVACY_POLICY_URL || 'https://example.com/privacy';
-const TERMS_URL = env.TERMS_URL || 'https://example.com/terms';
+const PRIVACY_POLICY_URL = env.EXPO_PUBLIC_PRIVACY_POLICY_URL || 'https://example.com/privacy';
+const TERMS_URL = env.EXPO_PUBLIC_TERMS_URL || 'https://example.com/terms';
 
 module.exports = {
   expo: {
@@ -82,8 +82,8 @@ module.exports = {
     extra: {
       eas: { projectId: EAS_PROJECT_ID },
       // Surfaced to the app at runtime via expo-constants.
-      admobRewardedUnitAndroid: env.ADMOB_REWARDED_UNIT_ANDROID,
-      admobRewardedUnitIos: env.ADMOB_REWARDED_UNIT_IOS,
+      admobRewardedUnitAndroid: env.EXPO_PUBLIC_ADMOB_REWARDED_UNIT_ANDROID,
+      admobRewardedUnitIos: env.EXPO_PUBLIC_ADMOB_REWARDED_UNIT_IOS,
       privacyPolicyUrl: PRIVACY_POLICY_URL,
       termsUrl: TERMS_URL,
     },
