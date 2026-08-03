@@ -27,10 +27,11 @@ export default function CatalogDrawer({
   onDragStart,
   onDragMove,
   onDragEnd,
+  onActivateFreeDraw,
   dragActive = false,
 }) {
   const { colors, radius, shadows, isDark } = useTheme();
-  const { width: screenW } = useWindowDimensions();
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const unlocked = useUnlocksStore((s) => s.unlocked);
   const balance = useCreditsStore((s) => s.balance);
   const subscriber = useCreditsStore((s) => s.tier !== 'free');
@@ -43,6 +44,9 @@ export default function CatalogDrawer({
 
   // Compact ~18% sidebar (clamped between 115px and 200px so items remain usable).
   const panelW = Math.max(115, Math.min(200, screenW * 0.18));
+  // Category dropdown should expand to (nearly) full screen height so every
+  // category is visible at once, scrolling only once the list overflows.
+  const categoryMenuMaxH = Math.max(240, screenH - 160);
   const [category, setCategory] = useState(initialCategory || 'Structure');
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -199,7 +203,7 @@ export default function CatalogDrawer({
                     top: 42,
                     left: 8,
                     right: 8,
-                    maxHeight: 360,
+                    maxHeight: categoryMenuMaxH,
                     borderRadius: radius.md,
                     borderWidth: 1,
                     borderColor: colors.line,
@@ -256,6 +260,13 @@ export default function CatalogDrawer({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ padding: 8, paddingBottom: 16, gap: 8 }}
           >
+            {/* "Custom Shape" — not a placeable catalog item, so it isn't in
+                `items` (which can be replaced wholesale by a backend catalog
+                sync). Tapping it hands off to the canvas's freehand draw tool
+                instead of dropping a fixed-shape structure. */}
+            {activeCategory === 'Structure' ? (
+              <FreeDrawTile colors={colors} radius={radius} isDark={isDark} onPress={() => onActivateFreeDraw?.()} />
+            ) : null}
             {items.length === 0 ? (
               <Text variant="caption" color="ink3" style={{ padding: 12, textAlign: 'center', fontSize: 11 }}>
                 No items in this category yet.
@@ -370,6 +381,49 @@ function DrawerItemRow({ item, paid, cost, colors, radius, isDark, onAdd, onDrag
         </View>
       </Pressable>
     </GestureDetector>
+  );
+}
+
+// The "draw your own room" tool tile — pencil glyph + a "Draw" tag instead of
+// the free/paid badge. Tap-only (no drag-to-place; there's nothing fixed-size
+// to drop).
+function FreeDrawTile({ colors, radius, isDark, onPress }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={{
+        height: 74,
+        borderRadius: radius.md,
+        backgroundColor: isDark ? '#211914' : '#F5EBE4',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1.5,
+        borderColor: colors.accent,
+        borderStyle: 'dashed',
+      }}
+    >
+      <Icon name="pencil" size={30} color={colors.accent} strokeWidth={2} />
+      <Text
+        numberOfLines={1}
+        style={{ marginTop: 4, fontSize: 10, fontFamily: 'Manrope_700Bold', color: colors.accent }}
+      >
+        Custom Shape
+      </Text>
+      <View
+        style={{
+          position: 'absolute',
+          top: 5,
+          right: 5,
+          paddingHorizontal: 5,
+          height: 16,
+          borderRadius: 8,
+          justifyContent: 'center',
+          backgroundColor: colors.accentSoft,
+        }}
+      >
+        <Text style={{ fontSize: 8.5, fontFamily: 'Manrope_700Bold', color: colors.accent }}>DRAW</Text>
+      </View>
+    </Pressable>
   );
 }
 

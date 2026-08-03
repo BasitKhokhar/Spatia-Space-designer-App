@@ -10,14 +10,14 @@ const TAB_ICONS = {
   [ROUTES.home]: 'home',
   [ROUTES.explore]: 'explore',
   [ROUTES.projects]: 'grid',
-  [ROUTES.profile]: 'user',
+  [ROUTES.settingsTab]: 'settings',
 };
 
 const TAB_LABELS = {
   [ROUTES.home]: 'Home',
   [ROUTES.explore]: 'Explore',
   [ROUTES.projects]: 'Projects',
-  [ROUTES.profile]: 'Profile',
+  [ROUTES.settingsTab]: 'Settings',
 };
 
 function TabButton({ route, isFocused, onPress }) {

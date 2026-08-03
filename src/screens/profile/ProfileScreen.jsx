@@ -42,20 +42,20 @@ export default function ProfileScreen({ navigation }) {
   const exportsMade = useProjectsStore((s) => s.exportsMade);
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'bottom']}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         <View
           style={{
             flexDirection: 'row',
             alignItems: 'center',
-            justifyContent: 'space-between',
+            gap: 14,
             paddingHorizontal: 24,
             paddingTop: 8,
           }}
         >
-          <Text variant="h2">Profile</Text>
           <Pressable
-            onPress={() => navigation.navigate(ROUTES.settings)}
+            onPress={() => navigation.goBack()}
+            hitSlop={8}
             style={{
               width: 40,
               height: 40,
@@ -67,8 +67,9 @@ export default function ProfileScreen({ navigation }) {
               justifyContent: 'center',
             }}
           >
-            <Icon name="settings" size={18} color={colors.ink} strokeWidth={1.4} />
+            <Icon name="chevron-left" size={20} color={colors.ink} strokeWidth={2.2} />
           </Pressable>
+          <Text variant="h2">Profile</Text>
         </View>
 
         <View style={{ alignItems: 'center', marginTop: 26 }}>
@@ -119,7 +120,11 @@ export default function ProfileScreen({ navigation }) {
             overflow: 'hidden',
           }}
         >
-          <ListRow icon="grid" label="My Projects" onPress={() => navigation.navigate(ROUTES.projects)} />
+          <ListRow
+            icon="grid"
+            label="My Projects"
+            onPress={() => navigation.navigate(ROUTES.tabs, { screen: ROUTES.projects })}
+          />
           <RowDivider />
           <ListRow icon="upload" label="Export History" onPress={() => navigation.navigate(ROUTES.export)} />
         </View>

@@ -13,6 +13,10 @@ export const ROUTES = {
   home: 'Home',
   explore: 'Explore',
   projects: 'Projects',
+  // The last tab hosts SettingsScreen. It gets its own name so the pushed
+  // stack copy (reached from Profile / the editor) stays separately routable.
+  settingsTab: 'SettingsTab',
+  // Profile now lives in the stack, reached from Settings → Profile.
   profile: 'Profile',
   // Project creation
   newProject: 'NewProjectStart',

@@ -34,8 +34,11 @@ function Group({ title, danger, children }) {
   );
 }
 
-export default function SettingsScreen({ navigation }) {
+export default function SettingsScreen({ navigation, route }) {
   const { colors } = useTheme();
+  // Mounted as the last tab (no back button, clears the floating tab bar) or
+  // pushed on the stack from Profile / the editor (normal back header).
+  const isTab = route?.name === ROUTES.settingsTab;
   const themePreference = useSettingsStore((s) => s.themePreference);
   const setThemePreference = useSettingsStore((s) => s.setThemePreference);
   const measurementUnit = useSettingsStore((s) => s.measurementUnit);
@@ -50,11 +53,24 @@ export default function SettingsScreen({ navigation }) {
     ]);
 
   return (
-    <Screen>
-      <HeaderBar title="Settings" onBack={() => navigation.goBack()} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }}>
+    <Screen edges={isTab ? ['top'] : ['top', 'bottom']}>
+      <HeaderBar title="Settings" onBack={isTab ? undefined : () => navigation.goBack()} />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: isTab ? 130 : 40 }}
+      >
         <Group title="ACCOUNT">
-          <ListRow icon="user" label="Edit Profile" onPress={() => {}} />
+          <ListRow icon="user" label="Profile" onPress={() => navigation.navigate(ROUTES.profile)} />
+          <RowDivider />
+          <ListRow
+            icon="grid"
+            label="My Projects"
+            onPress={() => navigation.navigate(ROUTES.tabs, { screen: ROUTES.projects })}
+          />
+          <RowDivider />
+          <ListRow icon="upload" label="Export History" onPress={() => navigation.navigate(ROUTES.export)} />
+          <RowDivider />
+          <ListRow icon="cart" label="Credits & Plans" onPress={() => navigation.navigate(ROUTES.earnCredits)} />
           <RowDivider />
           <ListRow icon="bell" label="Notification Preferences" onPress={() => {}} />
         </Group>

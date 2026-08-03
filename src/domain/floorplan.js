@@ -1,7 +1,7 @@
 import { uid } from '@/utils/id';
 import { areaM2 } from './units';
 import { defaultElevation } from '@/data/itemEditor';
-import { polygonLocalPoints, shapePolygon } from '@/data/structure';
+import { polygonLocalPoints, shapePolygon, SHELL } from '@/data/structure';
 
 // ---------------------------------------------------------------------------
 // The floor-plan model is the single source of truth shared by the 2D editor,
@@ -117,6 +117,43 @@ export function wallLength(wall) {
 // Point at parameter t (0..1) along a wall's centerline.
 export function pointAlongWall(wall, t) {
   return { x: wall.x1 + (wall.x2 - wall.x1) * t, y: wall.y1 + (wall.y2 - wall.y1) * t };
+}
+
+// Ramer-Douglas-Peucker simplification of a polyline (open, endpoints kept).
+// Used to turn a raw finger-drawn stroke (dozens/hundreds of points) into a
+// clean set of wall corners.
+export function simplifyPolyline(points, epsilon = 0.12) {
+  if (!points || points.length < 3) return points ? [...points] : [];
+  const perpDist = (p, a, b) => {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+    if (len2 < 1e-9) return Math.hypot(p.x - a.x, p.y - a.y);
+    const t = ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2;
+    const cx = a.x + t * dx;
+    const cy = a.y + t * dy;
+    return Math.hypot(p.x - cx, p.y - cy);
+  };
+  const rdp = (pts) => {
+    if (pts.length < 3) return pts;
+    const [first, last] = [pts[0], pts[pts.length - 1]];
+    let maxDist = -1;
+    let idx = -1;
+    for (let i = 1; i < pts.length - 1; i++) {
+      const d = perpDist(pts[i], first, last);
+      if (d > maxDist) {
+        maxDist = d;
+        idx = i;
+      }
+    }
+    if (maxDist > epsilon) {
+      const left = rdp(pts.slice(0, idx + 1));
+      const right = rdp(pts.slice(idx));
+      return [...left.slice(0, -1), ...right];
+    }
+    return [first, last];
+  };
+  return rdp(points);
 }
 
 // Shoelace area of a polygon in m², rounded to 0.1 like areaM2.
@@ -472,9 +509,66 @@ function structureShape(catalogItem) {
   return { ...shape };
 }
 
+// Build a new room shell from a freehand-drawn outline (world/plan meters,
+// ordered around the shape). Mirrors the `structure` branch of
+// addFurnitureItem, but there's no fixed catalog entry to clone the shape
+// from — the drawn points *are* the shape, re-centered on their bounding box
+// like every other polygon shell's `shape.points`.
+export function addCustomStructure(plan, worldPoints) {
+  if (!worldPoints || worldPoints.length < 3) return plan;
+  const xs = worldPoints.map((p) => p.x);
+  const ys = worldPoints.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const cx = (minX + maxX) / 2;
+  const cy = (minY + maxY) / 2;
+  const rnd = (v) => Math.round(v * 1000) / 1000;
+  const points = worldPoints.map((p) => ({ x: rnd(p.x - cx), y: rnd(p.y - cy) }));
+  const item = {
+    id: uid('furn'),
+    catalogId: 'custom-shape',
+    kind: 'roomCustom',
+    name: 'Custom Room',
+    w: rnd(maxX - minX) || 0.1,
+    d: rnd(maxY - minY) || 0.1,
+    h: plan.wallHeight ?? 2.6,
+    x: cx,
+    y: cy,
+    rotation: 0,
+    scale: 1,
+    sx: 1,
+    sy: 1,
+    mirrored: false,
+    color: SHELL[0],
+    parts: {},
+    elevation: 0,
+    structure: true,
+    shape: { type: 'polygon', points },
+  };
+  return { ...plan, furniture: [...plan.furniture, item] };
+}
+
 // True for room-shell structures whose outline is an editable polygon.
 export function isPolygonStructure(f) {
   return !!(f?.structure && f.shape?.type === 'polygon');
+}
+
+// Remove one wall from a polygon shell without touching its corners: the edge
+// index is flagged "open" so the renderer skips that segment's stroke (a gap
+// in the wall) while the floor fill and every other wall stay put. Indices
+// stay stable across edits since points are never deleted.
+export function openStructureEdge(plan, itemId, edgeIndex) {
+  return {
+    ...plan,
+    furniture: plan.furniture.map((f) => {
+      if (f.id !== itemId || !isPolygonStructure(f)) return f;
+      const open = new Set(f.shape.openEdges || []);
+      open.add(edgeIndex);
+      return { ...f, shape: { ...f.shape, openEdges: [...open] } };
+    }),
+  };
 }
 
 // Editable vertex list (local meters, centered on the item origin) for a polygon

@@ -37,10 +37,12 @@ import {
   removeFurnitureItem,
   duplicateFurnitureItem,
   addWall,
+  removeWall,
   addRoomRect,
   addOpening,
   itemWallOpenings,
   nearestWallHit,
+  wallHit,
   wallLength,
   pointAlongWall,
   setMaterials,
@@ -63,6 +65,9 @@ import {
   isPolygonStructure,
   structureLocalPoints,
   structureLocalBounds,
+  openStructureEdge,
+  addCustomStructure,
+  simplifyPolyline,
 } from '@/domain/floorplan';
 import { formatLength, formatArea } from '@/domain/units';
 import { floorMaterialById } from '@/data/materials';
@@ -178,6 +183,12 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
   const [selectedId, setSelectedId] = useState(null);
   const [selectedRoomId, setSelectedRoomId] = useState(null);
   const [selectedTextId, setSelectedTextId] = useState(null);
+  // A single wall/side picked out of a structure by double-tap — either one
+  // edge of a polygon shell ({ kind:'polygon', itemId, edgeIndex }) or a plain
+  // wall segment ({ kind:'wall', wallId }). Independent of selectedId/RoomId so
+  // the parent item's own selection UI (handles, sheet) still applies too.
+  const [selectedSide, setSelectedSide] = useState(null);
+  const [freeDraw, setFreeDraw] = useState(null); // live custom-shape draft: [{x,y}...] | null
   const [itemTab, setItemTab] = useState('style');
   const [canvas, setCanvas] = useState({ w: 1, h: 1 });
   const [zoom, setZoom] = useState(1);
@@ -236,11 +247,12 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
     outline,
   };
 
-  // Clear any current selection (all three kinds).
+  // Clear any current selection (all kinds).
   const clearSelection = useCallback(() => {
     setSelectedId(null);
     setSelectedRoomId(null);
     setSelectedTextId(null);
+    setSelectedSide(null);
   }, []);
 
   // Begin / commit inline renaming of the active project from the header.
@@ -298,6 +310,7 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
     setPending(null);
     setMeasure(null);
     setOutline(null);
+    setFreeDraw(null);
     if (tool !== 'select') clearSelection();
   }, [tool]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -436,6 +449,28 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
     const ly = -dx * sin + dy * cos;
     return { x: (f.mirrored ? -1 : 1) * lx, y: ly };
   };
+
+  // Double-tap wall hit-test: perpendicular distance from a point to every edge
+  // of every polygon-shell structure (front-to-back), so a double-tap anywhere
+  // along a wall's length — not just its midpoint handle — targets it.
+  const hitStructureEdge = (pt, maxDist = 0.28) => {
+    const items = refs.current.plan?.furniture || [];
+    for (let i = items.length - 1; i >= 0; i--) {
+      const f = items[i];
+      if (!isPolygonStructure(f)) continue;
+      const pts = structureLocalPoints(f) || [];
+      let best = null;
+      for (let e = 0; e < pts.length; e++) {
+        const a = structureWorld(f, pts[e].x, pts[e].y);
+        const b = structureWorld(f, pts[(e + 1) % pts.length].x, pts[(e + 1) % pts.length].y);
+        const { dist } = wallHit({ x1: a.x, y1: a.y, x2: b.x, y2: b.y }, pt);
+        if (dist <= maxDist && (!best || dist < best.dist)) best = { edgeIndex: e, dist };
+      }
+      if (best) return { itemId: f.id, edgeIndex: best.edgeIndex };
+    }
+    return null;
+  };
+
   // Editable handles for a polygon shell: one draggable arrow per corner, a dot at
   // every edge midpoint (moves the whole wall), plus center-move and rotate.
   const polygonHandles = (f) => {
@@ -461,6 +496,11 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
   // ---- gestures ----
   const drag = useRef({ mode: null });
   const twoFinger = useRef(null); // two-finger pan session (canvas translate)
+  // Last single-tap's time+position, for manual double-tap detection (see the
+  // `tap` gesture below). Deliberately not RNGH's numberOfTaps(2): that would
+  // make every single tap wait to see if a second one follows, adding latency
+  // to door/window/wall/text placement too.
+  const lastTap = useRef({ time: 0, x: 0, y: 0 });
 
   const pan = useMemo(
     () =>
@@ -473,6 +513,10 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
         .onBegin((e) => {
           const pt = screenToPlan(e.x, e.y);
           const r = refs.current;
+          if (r.tool === 'freedraw') {
+            drag.current = { mode: 'freedraw', points: [pt] };
+            return;
+          }
           if (r.tool === 'select') {
             const sel = r.plan?.furniture.find((f) => f.id === r.selectedId);
             // Polygon shells edit per-corner: arrow handles drag one vertex; edge
@@ -656,9 +700,49 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
             setPlan((prev) => updateFurnitureItem(prev, d.id, { shape: { ...d.startShape, points } }));
           } else if (d.mode === 'pan') {
             setOffset({ x: d.startOffset.x + e.translationX, y: d.startOffset.y + e.translationY });
+          } else if (d.mode === 'freedraw') {
+            const pt = screenToPlan(e.x, e.y);
+            const last = d.points[d.points.length - 1];
+            // Throttle by distance so a slow drag doesn't flood the point list.
+            if (!last || Math.hypot(pt.x - last.x, pt.y - last.y) >= 0.05) {
+              d.points.push(pt);
+              setFreeDraw([...d.points]);
+            }
           }
         })
         .onEnd(() => {
+          const d = drag.current;
+          if (d.mode === 'freedraw') {
+            const r = refs.current;
+            const pts = d.points;
+            const xs = pts.map((p) => p.x);
+            const ys = pts.map((p) => p.y);
+            const w = Math.max(...xs) - Math.min(...xs);
+            const h = Math.max(...ys) - Math.min(...ys);
+            // Ignore an accidental tap/jitter — require a real sketch.
+            if (w >= 0.4 && h >= 0.4) {
+              let simplified = simplifyPolyline(pts, 0.12);
+              // A naturally-closed loop leaves a near-duplicate last point —
+              // drop it so we don't get a sliver wall back to the start.
+              const first = simplified[0];
+              const last = simplified[simplified.length - 1];
+              if (simplified.length > 3 && Math.hypot(last.x - first.x, last.y - first.y) < 0.15) {
+                simplified = simplified.slice(0, -1);
+              }
+              if (r.snapOn) simplified = simplified.map((p) => ({ x: snap(p.x), y: snap(p.y) }));
+              if (simplified.length >= 3) {
+                let newId = null;
+                applyCommit((pl) => {
+                  const next = addCustomStructure(pl, simplified);
+                  newId = next.furniture[next.furniture.length - 1].id;
+                  return next;
+                });
+                setTool('select');
+                if (newId) setSelectedId(newId);
+              }
+            }
+            setFreeDraw(null);
+          }
           drag.current = { mode: null };
         }),
     [ppm]
@@ -673,11 +757,35 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
           const r = refs.current;
           const pt = screenToPlan(e.x, e.y);
           if (r.tool === 'select') {
+            // Manual double-tap: two taps landing close in time + position.
+            const now = Date.now();
+            const lt = lastTap.current;
+            const isDouble = now - lt.time < 320 && Math.hypot(e.x - lt.x, e.y - lt.y) < 24;
+            lastTap.current = { time: now, x: e.x, y: e.y };
+            if (isDouble) {
+              const edgeHit = hitStructureEdge(pt);
+              if (edgeHit) {
+                setSelectedId(edgeHit.itemId);
+                setSelectedRoomId(null);
+                setSelectedTextId(null);
+                setSelectedSide({ kind: 'polygon', itemId: edgeHit.itemId, edgeIndex: edgeHit.edgeIndex });
+                return;
+              }
+              const wallHitRes = nearestWallHit(r.plan, pt, 0.28);
+              if (wallHitRes) {
+                setSelectedId(null);
+                setSelectedRoomId(wallHitRes.wall.group || null);
+                setSelectedTextId(null);
+                setSelectedSide({ kind: 'wall', wallId: wallHitRes.wall.id });
+                return;
+              }
+            }
             const hit = hitTest(pt);
             if (hit) {
               setSelectedId(hit.id);
               setSelectedRoomId(null);
               setSelectedTextId(null);
+              setSelectedSide(null);
               return;
             }
             const textHit = hitTextEl(pt);
@@ -685,6 +793,7 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
               setSelectedTextId(textHit.id);
               setSelectedId(null);
               setSelectedRoomId(null);
+              setSelectedSide(null);
               return;
             }
             const roomHit = hitRoom(pt);
@@ -692,6 +801,7 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
               setSelectedRoomId(roomHit.id);
               setSelectedId(null);
               setSelectedTextId(null);
+              setSelectedSide(null);
               return;
             }
             clearSelection();
@@ -842,6 +952,17 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
   };
   const duplicateSelectedText = () => applyCommit((p) => duplicateText(p, selectedTextId));
 
+  // ---- single-wall actions (double-tap selection) ----
+  const deleteSelectedSide = () => {
+    if (!selectedSide) return;
+    if (selectedSide.kind === 'polygon') {
+      applyCommit((p) => openStructureEdge(p, selectedSide.itemId, selectedSide.edgeIndex));
+    } else if (selectedSide.kind === 'wall') {
+      applyCommit((p) => removeWall(p, selectedSide.wallId));
+    }
+    setSelectedSide(null);
+  };
+
   // Drop a catalog item onto the plan. Tapping a row places it at plan center;
   // dragging a row places it exactly where the finger was released (`position`).
   // Premium items route through the rewarded-ad unlock first. The freshly placed
@@ -938,29 +1059,39 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
       // Editable vertices (local meters, centered) drive the outline so a dragged
       // corner reshapes the room. Fall back to the kind's normalized outline.
       const localPts = structureLocalPoints(f);
-      const p = Skia.Path.Make();
+      let ptsPx;
       if (localPts && localPts.length >= 3) {
-        localPts.forEach((pt, i) => {
-          const x = pt.x * ppm;
-          const y = pt.y * ppm;
-          if (i === 0) p.moveTo(x, y);
-          else p.lineTo(x, y);
-        });
+        ptsPx = localPts.map((pt) => ({ x: pt.x * ppm, y: pt.y * ppm }));
       } else {
         const poly = shapePolygon(shape.kind) || [[0, 0], [1, 0], [1, 1], [0, 1]];
-        poly.forEach(([nx, ny], i) => {
-          const x = (nx - 0.5) * wPx;
-          const y = (ny - 0.5) * dPx;
-          if (i === 0) p.moveTo(x, y);
-          else p.lineTo(x, y);
-        });
+        ptsPx = poly.map(([nx, ny]) => ({ x: (nx - 0.5) * wPx, y: (ny - 0.5) * dPx }));
       }
+      const p = Skia.Path.Make();
+      ptsPx.forEach((pt, i) => (i === 0 ? p.moveTo(pt.x, pt.y) : p.lineTo(pt.x, pt.y)));
       p.close();
       // Wall stroke honors an editable thickness (meters) so shells can have thick
       // or thin walls; falls back to a size-relative default.
       const wallPx = shape.wallThickness ? Math.max(2.5, shape.wallThickness * ppm) : strokeW;
       els.push(<Path key="fill" path={p} color={fill} opacity={0.55} />);
-      els.push(<Path key="wall" path={p} color={stroke} style="stroke" strokeWidth={wallPx} strokeJoin="round" />);
+      // Deleted walls (double-tap → Delete Wall) leave a gap: walk the edges and
+      // break the stroke path at any index in shape.openEdges, chaining the rest
+      // so untouched corners still get a mitered join.
+      const openEdges = new Set(shape.openEdges || []);
+      const wallPath = Skia.Path.Make();
+      let started = false;
+      ptsPx.forEach((pt, i) => {
+        if (openEdges.has(i)) {
+          started = false;
+          return;
+        }
+        const n = ptsPx[(i + 1) % ptsPx.length];
+        if (!started) {
+          wallPath.moveTo(pt.x, pt.y);
+          started = true;
+        }
+        wallPath.lineTo(n.x, n.y);
+      });
+      els.push(<Path key="wall" path={wallPath} color={stroke} style="stroke" strokeWidth={wallPx} strokeJoin="round" />);
     } else if (shape.type === 'wall') {
       els.push(<RoundedRect key="w" x={-hw} y={-hd} width={wPx} height={dPx} r={2} color={stroke} />);
     } else if (shape.type === 'column') {
@@ -1394,6 +1525,37 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
                   })()
                 : null}
 
+              {/* Double-tapped wall/side highlight — a single stroke over just that
+                  segment, so "Delete Wall" is obviously scoped to one side. */}
+              {selectedSide
+                ? (() => {
+                    let a = null;
+                    let b = null;
+                    if (selectedSide.kind === 'polygon' && selected) {
+                      const pts = structureLocalPoints(selected) || [];
+                      const p0 = pts[selectedSide.edgeIndex];
+                      const p1 = pts[(selectedSide.edgeIndex + 1) % pts.length];
+                      if (p0 && p1) {
+                        a = structureWorld(selected, p0.x, p0.y);
+                        b = structureWorld(selected, p1.x, p1.y);
+                      }
+                    } else if (selectedSide.kind === 'wall') {
+                      const w = plan.walls.find((x) => x.id === selectedSide.wallId);
+                      if (w) {
+                        a = { x: w.x1, y: w.y1 };
+                        b = { x: w.x2, y: w.y2 };
+                      }
+                    }
+                    if (!a || !b) return null;
+                    const sa = planToScreen(a.x, a.y);
+                    const sb = planToScreen(b.x, b.y);
+                    const hl = Skia.Path.Make();
+                    hl.moveTo(sa.sx, sa.sy);
+                    hl.lineTo(sb.sx, sb.sy);
+                    return <Path path={hl} color={colors.danger} style="stroke" strokeWidth={6} strokeCap="round" />;
+                  })()
+                : null}
+
               {selected && !isPolygonStructure(selected)
                 ? (() => {
                     const h = handlePositions(selected);
@@ -1449,6 +1611,21 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
                         })}
                         <Circle cx={first.sx} cy={first.sy} r={7} color="#fff" style="stroke" strokeWidth={2} />
                       </Group>
+                    );
+                  })()
+                : null}
+
+              {/* freehand custom-shape draft (live, drawn while dragging) */}
+              {freeDraw && freeDraw.length > 1
+                ? (() => {
+                    const path = Skia.Path.Make();
+                    freeDraw.forEach((pt, i) => {
+                      const s = planToScreen(pt.x, pt.y);
+                      if (i === 0) path.moveTo(s.sx, s.sy);
+                      else path.lineTo(s.sx, s.sy);
+                    });
+                    return (
+                      <Path path={path} color={colors.accent} style="stroke" strokeWidth={3} strokeCap="round" strokeJoin="round" />
                     );
                   })()
                 : null}
@@ -1685,13 +1862,30 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
       {/* Contextual action bar — the upper of the two footer lists. Appears when
           any element is selected; its actions adapt to the selection type. */}
       {(() => {
-        if (!selected && !selectedRoom && !selectedText) return null;
+        if (!selected && !selectedRoom && !selectedText && !selectedSide) return null;
 
         let title = '';
         let caption = '';
         let actions = [];
 
-        if (selected) {
+        if (selectedSide) {
+          title = 'Wall';
+          let len = 0;
+          if (selectedSide.kind === 'polygon' && selected) {
+            const pts = structureLocalPoints(selected) || [];
+            const a = pts[selectedSide.edgeIndex];
+            const b = pts[(selectedSide.edgeIndex + 1) % pts.length];
+            if (a && b) len = Math.hypot(b.x - a.x, b.y - a.y);
+          } else if (selectedSide.kind === 'wall') {
+            const w = plan.walls.find((x) => x.id === selectedSide.wallId);
+            if (w) len = wallLength(w);
+          }
+          caption = `${formatLength(len, unit)} · double-tapped side`;
+          actions = [
+            { icon: 'trash', label: 'Delete Wall', onPress: deleteSelectedSide, danger: true },
+            { icon: 'close', label: 'Deselect', onPress: () => setSelectedSide(null) },
+          ];
+        } else if (selected) {
           const d = itemDims(selected);
           title = selected.name;
           caption = `${formatLength(d.w, unit)} × ${formatLength(d.d, unit)} · ${selected.rotation}°`;
@@ -1761,6 +1955,34 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
           </View>
         );
       })()}
+
+      {/* Freehand custom-shape instruction banner — Select tool in the footer
+          cancels back out at any point before a drag starts. */}
+      {tool === 'freedraw' ? (
+        <View
+          pointerEvents="none"
+          style={[
+            {
+              position: 'absolute',
+              top: insets.top + 8,
+              alignSelf: 'center',
+              paddingHorizontal: 14,
+              height: 34,
+              borderRadius: 17,
+              backgroundColor: colors.ink,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+            },
+            shadows.e3,
+          ]}
+        >
+          <Icon name="pencil" size={13} color={colors.bg} strokeWidth={2.2} />
+          <Text style={{ color: colors.bg, fontFamily: 'Manrope_600SemiBold', fontSize: 12.5 }}>
+            Drag to sketch a room outline
+          </Text>
+        </View>
+      ) : null}
 
       {/* Finish draft button — clears the current draft, above the footer */}
       {pending || (measure && measure.b) || (outline && outline.length >= 3) ? (
@@ -1856,6 +2078,10 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
         onDragMove={handleDragMove}
         onDragEnd={handleDragEnd}
         dragActive={!!dragGhost}
+        onActivateFreeDraw={() => {
+          setDrawerOpen(false);
+          setTool('freedraw');
+        }}
         onViewDetails={(category) => {
           setDrawerOpen(false);
           navigation.navigate(ROUTES.catalog, { category });

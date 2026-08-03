@@ -5,7 +5,7 @@ import { ROUTES } from './routes';
 import HomeScreen from '@/screens/home/HomeScreen';
 import ExploreScreen from '@/screens/explore/ExploreScreen';
 import ProjectsScreen from '@/screens/projects/ProjectsScreen';
-import ProfileScreen from '@/screens/profile/ProfileScreen';
+import SettingsScreen from '@/screens/settings/SettingsScreen';
 
 const Tab = createBottomTabNavigator();
 
@@ -18,7 +18,7 @@ export default function TabNavigator() {
       <Tab.Screen name={ROUTES.home} component={HomeScreen} />
       <Tab.Screen name={ROUTES.explore} component={ExploreScreen} />
       <Tab.Screen name={ROUTES.projects} component={ProjectsScreen} />
-      <Tab.Screen name={ROUTES.profile} component={ProfileScreen} />
+      <Tab.Screen name={ROUTES.settingsTab} component={SettingsScreen} />
     </Tab.Navigator>
   );
 }
