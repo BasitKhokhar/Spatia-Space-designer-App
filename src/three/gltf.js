@@ -58,16 +58,25 @@ function base64ToArrayBuffer(b64) {
   return bytes.buffer;
 }
 
-async function loadGLB(moduleRef) {
-  const asset = Asset.fromModule(moduleRef);
-  await asset.downloadAsync(); // resolves to a local file:// uri on device
-  const uri = asset.localUri || asset.uri;
+// Parses a .glb at a local file:// URI (base64 -> ArrayBuffer -> GLTFLoader).
+// Exported so src/three/remoteModels.js can reuse it for models downloaded
+// from the catalog API instead of require()'d from the bundle.
+export async function parseGlbAtUri(uri) {
   const b64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
   const buffer = base64ToArrayBuffer(b64);
   const loader = new GLTFLoader();
   return new Promise((resolve, reject) => {
     loader.parse(buffer, '', resolve, reject);
   });
+}
+
+export { base64ToArrayBuffer };
+
+async function loadGLB(moduleRef) {
+  const asset = Asset.fromModule(moduleRef);
+  await asset.downloadAsync(); // resolves to a local file:// uri on device
+  const uri = asset.localUri || asset.uri;
+  return parseGlbAtUri(uri);
 }
 
 const cache = new Map(); // moduleRef -> { status, result, error, promise }

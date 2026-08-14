@@ -3,6 +3,7 @@ import { View, Pressable, StyleSheet, ScrollView, Animated, useWindowDimensions 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { Canvas } from '@react-three/fiber/native';
+import { ACESFilmicToneMapping } from 'three';
 import PerfProbe from '@/three/PerfProbe';
 
 // Dev-only renderer stats, logged rather than drawn so the UI is untouched.
@@ -360,6 +361,10 @@ export default function ThreeDViewScreen({ navigation }) {
         frameloop="demand"
         onCreated={(state) => {
           invalidateRef.current = state.invalidate;
+          // ACES rolls off highlights instead of clipping them — flat/blown-out
+          // without it, especially once PBR models with real specular hit the scene.
+          state.gl.toneMapping = ACESFilmicToneMapping;
+          state.invalidate();
         }}
       >
         <Room3D floors={floors} visibleFloors={visibleFloors} lighting={lighting} cam={cam} cutaway={cutaway} />

@@ -97,7 +97,7 @@ export default function UnlockItemSheet() {
               {/* Item preview + premium tag */}
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
                 <View style={{ width: 76, height: 76, borderRadius: radius.lg, backgroundColor: colors.surface2, alignItems: 'center', justifyContent: 'center' }}>
-                  <FurnitureGlyph kind={item.kind} catalogId={item.id} size={56} color={item.colors?.[0]} />
+                  <FurnitureGlyph kind={item.kind} catalogId={item.id} size={56} color={item.colors?.[0]} thumbUrl={item.thumbUrl} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>

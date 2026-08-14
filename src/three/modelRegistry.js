@@ -304,3 +304,46 @@ export function modelNameFor(kind, catalogId) {
 export function hasModel(kind, catalogId) {
   return !!modelFor(kind, catalogId);
 }
+
+// ---------------------------------------------------------------------------
+// Remote (catalog-downloaded) models
+// ---------------------------------------------------------------------------
+// Produced by scripts/models/pipeline/ (Poly Haven/Quaternius, real PBR
+// materials) and served from the backend at item.modelUrl. Same shape as a
+// bundled model() entry so ModelItem can treat both uniformly, plus
+// `remote: true` so it knows to fetch via src/three/remoteModels.js instead
+// of require()'d bundle assets.
+
+function remoteModel(item) {
+  if (!item?.modelUrl) return null;
+  return {
+    name: item.id,
+    remote: true,
+    url: item.modelUrl,
+    rotY: 0,
+    scale: 1,
+    fit: 'contain',
+    yOffset: 0,
+  };
+}
+
+/**
+ * Full resolution order for a placed item, including remote catalog models:
+ *   1. MODELS_BY_ID[catalogId] — explicit override, including NONE (opt-out,
+ *      does not fall through).
+ *   2. catalogItem.modelUrl — a server-catalog item with a published .glb.
+ *   3. MODELS[kind] — the bundled default for the item's kind.
+ *   4. null — procedural fallback.
+ *
+ * @param {string} kind
+ * @param {string} catalogId
+ * @param {object} [catalogItem] the full catalog row (for its modelUrl), if available
+ */
+export function resolveModel(kind, catalogId, catalogItem) {
+  if (catalogId && Object.prototype.hasOwnProperty.call(MODELS_BY_ID, catalogId)) {
+    return MODELS_BY_ID[catalogId];
+  }
+  const remote = remoteModel(catalogItem);
+  if (remote) return remote;
+  return MODELS[kind] || null;
+}

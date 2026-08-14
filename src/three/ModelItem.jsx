@@ -2,50 +2,66 @@ import { useMemo } from 'react';
 import { Box3, Vector3 } from 'three';
 
 import { useGLTFModel } from './gltf';
-import { prepareModel, projectedGeometry, materialFor, slotColor } from './prepareModel';
+import { useRemoteGLTF } from './remoteModels';
+import { prepareModel, prepareRemoteModel, projectedGeometry, materialFor, slotColor } from './prepareModel';
 
 // Renders a real .glb model, auto-fitted into the item's local frame:
 //   origin at the floor, centered on X/Z, sitting on y = 0, facing +Z.
 // This matches exactly how the procedural builders draw, so a modeled item
 // drops into <PlacedItem> in place of the box version with no layout change.
 //
+// Two sources share this fitting math but diverge on materials:
+//   - Bundled (Kenney kit): unlit, untextured — prepareModel() substitutes
+//     shared library materials by GLB material NAME, and one slot responds to
+//     the item's colour swatch. See prepareModel.js.
+//   - Remote (Poly Haven/Quaternius, via scripts/models/pipeline/): real PBR
+//     materials/textures baked in by the pipeline — prepareRemoteModel() only
+//     bakes transforms and leaves materials untouched. No colour-swatch
+//     response (accepted trade-off, same as the Kenney PNG catalog thumbs).
+//
 // Fitting: we measure the loaded model's bounding box and scale it uniformly so
 // it either fits fully inside the w×h×d item box ('contain') or fills the
 // footprint ('cover'). Uniform scale keeps proportions — no stretching.
-//
-// MATERIALS
-// The .glb's own materials are never used. prepareModel() has already replaced
-// them with shared library materials chosen by the GLB's material NAME (see
-// materials/kenneyMap.js — the kit is authored unlit and untextured, so drawing
-// it as-authored would look worse than the procedural fallback). Here we only
-// override the one slot that responds to the item's colour swatch.
-//
-// GEOMETRY
+export function ModelItem({ entry, w, d, h, color }) {
+  return entry.remote ? (
+    <RemoteModelItem entry={entry} w={w} d={d} h={h} />
+  ) : (
+    <BundledModelItem entry={entry} w={w} d={d} h={h} color={color} />
+  );
+}
+
+// Measures `root` and returns the uniform scale + recenter offset that fits it
+// into the item's w×h×d box per entry.fit ('contain' | 'cover'). Shared by
+// both variants below so the two rendering paths can't drift apart on layout.
+function fitTransform(root, w, d, h, entry) {
+  const box = new Box3().setFromObject(root);
+  const size = new Vector3();
+  const center = new Vector3();
+  box.getSize(size);
+  box.getCenter(center);
+
+  const sx = w / (size.x || 1);
+  const sy = h / (size.y || 1);
+  const sz = d / (size.z || 1);
+  // 'contain' → largest scale that still fits every axis inside the box.
+  // 'cover'   → fill the floor footprint (height may exceed the item box).
+  const base = entry.fit === 'cover' ? Math.max(sx, sz) : Math.min(sx, sy, sz);
+  const s = base * (entry.scale || 1);
+
+  return { s, box, center };
+}
+
+// GEOMETRY (bundled only)
 // UVs are box-projected per placement, because tiling is defined in real-world
 // metres and the fit scale is what turns model units into metres. Both the
 // projected geometry and the materials come from module-level caches, so a room
 // full of the same chair allocates nothing per instance.
-export function ModelItem({ entry, w, d, h, color }) {
+function BundledModelItem({ entry, w, d, h, color }) {
   const gltf = useGLTFModel(entry.src);
 
   const object = useMemo(() => {
     const { root } = prepareModel(gltf);
-
-    // Measure the prepared source: transforms are baked, so this is the same box
-    // the clone would give, without building the clone first.
-    const box = new Box3().setFromObject(root);
-    const size = new Vector3();
-    const center = new Vector3();
-    box.getSize(size);
-    box.getCenter(center);
-
-    const sx = w / (size.x || 1);
-    const sy = h / (size.y || 1);
-    const sz = d / (size.z || 1);
-    // 'contain' → largest scale that still fits every axis inside the box.
-    // 'cover'   → fill the floor footprint (height may exceed the item box).
-    const base = entry.fit === 'cover' ? Math.max(sx, sz) : Math.min(sx, sy, sz);
-    const s = base * (entry.scale || 1);
+    const { s, box, center } = fitTransform(root, w, d, h, entry);
 
     // Clone so multiple placements of the same kind don't share one instance.
     // Geometry and materials are still shared — only the node graph is copied.
@@ -92,6 +108,27 @@ export function ModelItem({ entry, w, d, h, color }) {
 
     return obj;
   }, [gltf, w, d, h, entry, color]);
+
+  return (
+    <group rotation={[0, entry.rotY || 0, 0]}>
+      <primitive object={object} />
+    </group>
+  );
+}
+
+function RemoteModelItem({ entry, w, d, h }) {
+  const gltf = useRemoteGLTF(entry.name, entry.url);
+
+  const object = useMemo(() => {
+    const { root } = prepareRemoteModel(gltf);
+    const { s, box, center } = fitTransform(root, w, d, h, entry);
+
+    const obj = root.clone(true);
+    obj.scale.setScalar(s);
+    obj.position.set(-center.x * s, -box.min.y * s + (entry.yOffset || 0), -center.z * s);
+
+    return obj;
+  }, [gltf, w, d, h, entry]);
 
   return (
     <group rotation={[0, entry.rotY || 0, 0]}>

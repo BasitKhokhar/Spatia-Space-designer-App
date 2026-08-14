@@ -45,6 +45,70 @@ const DERIVED_FACTOR = 0.78;
 // cache does not keep its prepared form alive.
 const PREPARED = new WeakMap();
 
+// Separate cache/prep path for catalog-downloaded (Poly Haven/Quaternius)
+// models. Unlike the Kenney kit, these carry real PBR materials and textures
+// baked in by the asset pipeline (scripts/models/pipeline/) — the whole point
+// of using them — so they skip the material-substitution and colour-slot
+// system entirely and keep their own materials as authored. A remote item
+// therefore doesn't respond to the user's colour swatch; that trade-off is
+// already accepted for bundled Kenney items via their PNG catalog thumbnails
+// (see itemThumbs.js).
+const PREPARED_REMOTE = new WeakMap();
+
+/**
+ * Prepare a parsed remote glTF for rendering: bake node transforms into
+ * geometry (same reason as prepareModel — everything downstream works in one
+ * flat space), fill in missing normals, enable shadows. Materials/textures
+ * are left untouched.
+ *
+ * @param {object} gltf result of GLTFLoader.parse / loadAsync
+ * @returns {{ root: import('three').Object3D }}
+ */
+export function prepareRemoteModel(gltf) {
+  const hit = PREPARED_REMOTE.get(gltf);
+  if (hit) return hit;
+
+  const root = gltf.scene;
+  root.updateMatrixWorld(true);
+
+  const meshes = [];
+  root.traverse((o) => {
+    if (o.isMesh) meshes.push(o);
+  });
+
+  meshes.forEach((mesh) => {
+    const geo = mesh.geometry.clone();
+    geo.applyMatrix4(mesh.matrixWorld);
+    if (!geo.attributes.normal) geo.computeVertexNormals();
+    mesh.geometry.dispose();
+    mesh.geometry = geo;
+    mesh.position.set(0, 0, 0);
+    mesh.quaternion.identity();
+    mesh.scale.set(1, 1, 1);
+    mesh.updateMatrix();
+
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+  });
+
+  root.traverse((o) => {
+    if (o !== root && !o.isMesh) {
+      o.position.set(0, 0, 0);
+      o.quaternion.identity();
+      o.scale.set(1, 1, 1);
+      o.updateMatrix();
+    }
+  });
+  root.position.set(0, 0, 0);
+  root.quaternion.identity();
+  root.scale.set(1, 1, 1);
+  root.updateMatrixWorld(true);
+
+  const prepared = { root };
+  PREPARED_REMOTE.set(gltf, prepared);
+  return prepared;
+}
+
 /**
  * Prepare a parsed glTF for rendering. Idempotent and cached — the returned
  * `root` is the canonical prepared scene, which ModelItem clones per placement.

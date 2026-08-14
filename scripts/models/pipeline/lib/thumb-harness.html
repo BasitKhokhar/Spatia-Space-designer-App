@@ -1,0 +1,104 @@
+<!doctype html>
+<!--
+  Renders a single .glb to a transparent PNG, read back via canvas.toDataURL().
+  Not shipped anywhere — this only ever runs inside a headless Chrome tab
+  driven by 3-thumbs.mjs, one navigation per model.
+
+  Rendering settings (ACESFilmicToneMapping, exposure 1.0, PMREM RoomEnvironment)
+  are chosen to match src/three/Environment.jsx + the ThreeDViewScreen.jsx
+  onCreated fix, so a catalog thumbnail looks like the model actually will once
+  placed in the app.
+
+  __THREE_URL__ / __GLTFLOADER_URL__ / __ROOMENV_URL__ are substituted with
+  absolute file:// paths by 3-thumbs.mjs before each navigation (import maps
+  can't use relative specifiers reliably across a temp-file copy).
+  Query params: glb (file:// URL to the model), size (px, square canvas),
+  azimuth/elevation (camera angle, degrees).
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; padding: 0; background: transparent; }
+      canvas { display: block; }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "__THREE_URL__",
+          "three/addons/loaders/GLTFLoader.js": "__GLTFLOADER_URL__",
+          "three/addons/environments/RoomEnvironment.js": "__ROOMENV_URL__"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+      import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+      const params = new URLSearchParams(location.search);
+      const glbUrl = params.get('glb');
+      const size = parseInt(params.get('size') || '512', 10);
+      const azimuthDeg = parseFloat(params.get('azimuth') || '45');
+      const elevationDeg = parseFloat(params.get('elevation') || '35');
+
+      async function main() {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        document.body.appendChild(canvas);
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+        renderer.setSize(size, size, false);
+        renderer.setPixelRatio(1);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.setClearColor(0x000000, 0);
+
+        const scene = new THREE.Scene();
+
+        const pmrem = new THREE.PMREMGenerator(renderer);
+        scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+
+        const key = new THREE.DirectionalLight(0xffffff, 2.5);
+        key.position.set(3, 6, 4);
+        scene.add(key);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+        const gltf = await new GLTFLoader().loadAsync(glbUrl);
+        const model = gltf.scene;
+        scene.add(model);
+
+        // Frame the model: center it, then place the camera on a 3/4 view at a
+        // distance derived from the bounding sphere so every model — a chair or
+        // a sofa — fills the same fraction of the frame.
+        const box = new THREE.Box3().setFromObject(model);
+        const sphere = box.getBoundingSphere(new THREE.Sphere());
+        model.position.sub(sphere.center);
+
+        const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+        const dist = sphere.radius / Math.sin((camera.fov * Math.PI) / 180 / 2) * 1.35;
+        const az = (azimuthDeg * Math.PI) / 180;
+        const el = (elevationDeg * Math.PI) / 180;
+        camera.position.set(
+          dist * Math.cos(el) * Math.sin(az),
+          dist * Math.sin(el),
+          dist * Math.cos(el) * Math.cos(az)
+        );
+        camera.lookAt(0, 0, 0);
+
+        renderer.render(scene, camera);
+
+        window.__thumbDataUrl = canvas.toDataURL('image/png');
+        window.__thumbDone = true;
+      }
+
+      main().catch((e) => {
+        window.__thumbError = e?.message || String(e);
+      });
+    </script>
+  </body>
+</html>

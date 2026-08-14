@@ -13,8 +13,18 @@ import { useTheme } from '@/theme/useTheme';
 // the 3D view uses, so a tile shows the exact product that will be placed
 // (a Chesterfield rather than a generic sofa). Without it the tile falls back to
 // the kind's default model, which is still correct, just less specific.
-export default function FurnitureGlyph({ kind = 'sofa', catalogId, size = 80, color }) {
+//
+// `thumbUrl` is a server-published catalog item's pre-rendered PNG (from
+// scripts/models/pipeline/) — it wins over the bundled Kenney thumbFor() PNG,
+// which wins over the vector glyph. RN's <Image> caches remote URIs natively,
+// so no extra caching code is needed for browse tiles (unlike the 3D model
+// itself, which does need on-device caching — see src/three/remoteModels.js).
+export default function FurnitureGlyph({ kind = 'sofa', catalogId, size = 80, color, thumbUrl }) {
   const { colors, isDark } = useTheme();
+
+  if (thumbUrl) {
+    return <Image source={{ uri: thumbUrl }} style={{ width: size, height: size }} resizeMode="contain" />;
+  }
 
   // Real product thumbnail takes precedence over the vector glyph.
   const thumb = thumbFor(kind, catalogId);

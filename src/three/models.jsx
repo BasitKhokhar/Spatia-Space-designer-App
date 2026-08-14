@@ -2,7 +2,8 @@ import { Component, Suspense, memo, useMemo } from 'react';
 import { Shape, DoubleSide } from 'three';
 
 import { ModelItem } from './ModelItem';
-import { modelFor } from './modelRegistry';
+import { resolveModel } from './modelRegistry';
+import { useCatalogStore } from '@/store/useCatalogStore';
 import { SHADOW_GEO, SHADOW_MAT, SHADOW_SPREAD, castsContactShadow } from './contactShadow';
 import { boxGeo, coneGeo, cylGeo, shapeGeo, sphereGeo, torusGeo } from './geometry';
 import { getMaterial } from './materials/library';
@@ -1311,7 +1312,11 @@ function PlacedItemImpl({ item, cx, cz, wallColor, floorColor, plan }) {
     <FurnitureGeometry item={item} w={w} d={d} h={h} />
   );
 
-  const entry = modelFor(item.kind, item.catalogId);
+  // catalogItem carries modelUrl for server-published (Poly Haven/Quaternius)
+  // items — resolveModel falls through to it only when there's no bundled
+  // Kenney override for this kind/catalogId. See modelRegistry.js.
+  const catalogItem = useCatalogStore((s) => s.byId(item.catalogId));
+  const entry = resolveModel(item.kind, item.catalogId, catalogItem);
 
   // Windows place themselves vertically via their sill (drawn in the builder +
   // carved into the wall), so they opt out of the generic elevation lift to
