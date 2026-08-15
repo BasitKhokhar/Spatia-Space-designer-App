@@ -34,7 +34,7 @@ module.exports = {
     assetBundlePatterns: ['**/*'],
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.spatia3d-space-designer.app',
+      bundleIdentifier: 'com.spatia3dspacedesigner.app',
       infoPlist: {
         NSUserTrackingUsageDescription:
           'This lets us show you more relevant ads to keep HomePlanner free.',
@@ -43,7 +43,7 @@ module.exports = {
       },
     },
     android: {
-      package: 'com.spatia3d-space-designer.app',
+      package: 'com.spatia3dspacedesigner.app',
       adaptiveIcon: {
         foregroundImage: './assets/adaptive-icon.png',
         backgroundColor: '#131210',
