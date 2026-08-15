@@ -1,0 +1,136 @@
+<!doctype html>
+<!--
+  Renders a straight-down top-down PNG of one Kenney .glb, WITH the same
+  material substitution the app applies at runtime (prepareModel() in
+  src/three/prepareModel.js) — the kit ships KHR_materials_unlit, no-texture
+  materials (see src/three/materials/kenneyMap.js's header comment); rendered
+  as-authored they come out flat pastel placeholders, not usable icons.
+
+  This is a scaled-down substitution: base color (tint) + a plausible
+  roughness/metalness guess per material id, no texture/normal maps — enough
+  for a small flat 2D icon, not attempting the full PBR library used by the
+  in-app 3D view.
+
+  __THREE_URL__ / __GLTFLOADER_URL__ / __KENNEYMAP_URL__ are substituted with
+  absolute file:// paths by render-plan-tops.mjs before each navigation.
+  Query params: glb (file:// URL), size (px, square canvas).
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; padding: 0; background: transparent; }
+      canvas { display: block; }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "__THREE_URL__",
+          "three/addons/loaders/GLTFLoader.js": "__GLTFLOADER_URL__",
+          "./kenneyMap.js": "__KENNEYMAP_URL__"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from 'three';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+      import { kenneyMaterial } from './kenneyMap.js';
+
+      const params = new URLSearchParams(location.search);
+      const glbUrl = params.get('glb');
+      const size = parseInt(params.get('size') || '512', 10);
+
+      // Rough id -> (roughness, metalness) guess. Matches the spirit of
+      // src/three/materials/library.js's presets without importing it (that
+      // file expects a live three.js texture pipeline this offline harness
+      // doesn't set up) — good enough for a small flat top-down icon.
+      const ROUGH_METAL = {
+        fabric: [0.85, 0.0],
+        carpet: [0.9, 0.0],
+        wood: [0.55, 0.0],
+        metal: [0.4, 0.85],
+        chrome: [0.15, 1.0],
+        glass: [0.05, 0.1],
+        paint: [0.6, 0.0],
+      };
+
+      function substituteMaterials(model) {
+        const cache = new Map();
+        model.traverse((node) => {
+          if (!node.isMesh || !node.material) return;
+          const srcName = node.material.name || '_defaultMat';
+          if (!cache.has(srcName)) {
+            const def = kenneyMaterial(srcName);
+            const [rough, metal] = ROUGH_METAL[def.id] || [0.7, 0.0];
+            cache.set(srcName, new THREE.MeshStandardMaterial({
+              color: new THREE.Color(def.tint),
+              roughness: def.rough ?? rough,
+              metalness: def.metal ?? metal,
+              emissive: def.emissive ? new THREE.Color(def.emissive) : undefined,
+              emissiveIntensity: def.emissiveIntensity ?? 0,
+            }));
+          }
+          node.material = cache.get(srcName);
+        });
+      }
+
+      async function main() {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        document.body.appendChild(canvas);
+
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+        renderer.setSize(size, size, false);
+        renderer.setPixelRatio(1);
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.0;
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
+        renderer.setClearColor(0x000000, 0);
+
+        const scene = new THREE.Scene();
+        scene.add(new THREE.HemisphereLight(0xffffff, 0xcbbfa8, 1.1));
+        const key = new THREE.DirectionalLight(0xffffff, 1.8);
+        key.position.set(3, 6, 4);
+        scene.add(key);
+        const fill = new THREE.DirectionalLight(0xffffff, 1.2);
+        fill.position.set(0, 10, 0);
+        scene.add(fill);
+
+        const gltf = await new GLTFLoader().loadAsync(glbUrl);
+        const model = gltf.scene;
+        substituteMaterials(model);
+        scene.add(model);
+
+        const box = new THREE.Box3().setFromObject(model);
+        const sphere = box.getBoundingSphere(new THREE.Sphere());
+        model.position.sub(sphere.center);
+
+        // Straight-down orthographic camera, framed to the XZ footprint.
+        // camera.up = +Z so the model's front renders toward the TOP of the
+        // image — this app's convention (Kenney kit faces +Z; see
+        // src/three/modelRegistry.js's ORIENTATION note), matching
+        // pipeline/lib/thumb-harness.html's 'top' view.
+        const boxSize = new THREE.Vector3();
+        box.getSize(boxSize);
+        const halfExtent = Math.max(boxSize.x, boxSize.z, 0.01) / 2 * 1.08;
+        const camHeight = Math.max(sphere.radius, boxSize.y) * 4 + 1;
+        const camera = new THREE.OrthographicCamera(-halfExtent, halfExtent, halfExtent, -halfExtent, 0.01, camHeight * 4);
+        camera.position.set(0, camHeight, 0);
+        camera.up.set(0, 0, 1);
+        camera.lookAt(0, 0, 0);
+
+        renderer.render(scene, camera);
+
+        window.__thumbDataUrl = canvas.toDataURL('image/png');
+        window.__thumbDone = true;
+      }
+
+      main().catch((e) => {
+        window.__thumbError = e?.message || String(e);
+      });
+    </script>
+  </body>
+</html>

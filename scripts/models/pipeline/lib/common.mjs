@@ -25,6 +25,7 @@ export const DIST_DIR = process.env.MODEL_PIPELINE_DIST || join(PIPELINE_ROOT, '
 export const BUCKET_DIR = join(DIST_DIR, 'bucket');
 export const MODELS_OUT_DIR = join(BUCKET_DIR, 'models');
 export const THUMBS_OUT_DIR = join(BUCKET_DIR, 'thumbs');
+export const TOPS_OUT_DIR = join(BUCKET_DIR, 'tops');
 export const ITEMS_JSON_PATH = join(DIST_DIR, 'items.json');
 
 // Same sibling convention as scripts/textures/build-textures.mjs: hand-unzipped

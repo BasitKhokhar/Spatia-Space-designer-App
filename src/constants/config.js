@@ -24,3 +24,7 @@ export const API_BASE_URL = (
   process.env.API_BASE_URL ||
   ''
 ).replace(/\/+$/, '');
+
+// RevenueCat Android public SDK key. Empty until the RevenueCat dashboard is
+// linked to Play Console — see src/services/billing/revenueCat.js.
+export const REVENUECAT_ANDROID_API_KEY = process.env.EXPO_PUBLIC_REVENUECAT_ANDROID_API_KEY || '';

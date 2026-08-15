@@ -19,13 +19,51 @@
 //   3. Reload the editor — placed items of that kind draw the image.
 // ---------------------------------------------------------------------------
 
-// Register top-down images here, keyed by item `kind`. Empty by default.
+// Register top-down images here, keyed by item `kind`. Generic per-kind icons
+// below are rendered from the bundled Kenney kit by
+// scripts/models/render-plan-tops.mjs (one-off, not part of the runtime asset
+// pipeline) — re-run it and re-commit the PNGs if src/three/modelRegistry.js's
+// MODELS table (kind -> Kenney base name) changes. A placed item with a
+// per-product photo (catalogItem.planTopUrl, from the CC0 asset pipeline)
+// draws that instead — see FurnitureShape.jsx's priority order.
 export const PLAN_TOPS = {
-  // car: require('../../assets/tops/car.png'),
-  // sofa: require('../../assets/tops/sofa.png'),
-  // bed: require('../../assets/tops/bed.png'),
-  // table: require('../../assets/tops/table.png'),
-  // tree: require('../../assets/tops/tree.png'),
+  sofa: require('../../assets/tops/sofa.png'),
+  sectional: require('../../assets/tops/sectional.png'),
+  chair: require('../../assets/tops/chair.png'),
+  stool: require('../../assets/tops/stool.png'),
+  bench: require('../../assets/tops/bench.png'),
+  table: require('../../assets/tops/table.png'),
+  roundTable: require('../../assets/tops/roundTable.png'),
+  desk: require('../../assets/tops/desk.png'),
+  nightstand: require('../../assets/tops/nightstand.png'),
+  bed: require('../../assets/tops/bed.png'),
+  wardrobe: require('../../assets/tops/wardrobe.png'),
+  dresser: require('../../assets/tops/dresser.png'),
+  bookshelf: require('../../assets/tops/bookshelf.png'),
+  shelfUnit: require('../../assets/tops/shelfUnit.png'),
+  cabinet: require('../../assets/tops/cabinet.png'),
+  tvStand: require('../../assets/tops/tvStand.png'),
+  wallShelf: require('../../assets/tops/wallShelf.png'),
+  counter: require('../../assets/tops/counter.png'),
+  island: require('../../assets/tops/island.png'),
+  stove: require('../../assets/tops/stove.png'),
+  fridge: require('../../assets/tops/fridge.png'),
+  sink: require('../../assets/tops/sink.png'),
+  bathtub: require('../../assets/tops/bathtub.png'),
+  shower: require('../../assets/tops/shower.png'),
+  toilet: require('../../assets/tops/toilet.png'),
+  mirror: require('../../assets/tops/mirror.png'),
+  lamp: require('../../assets/tops/lamp.png'),
+  pendant: require('../../assets/tops/pendant.png'),
+  sconce: require('../../assets/tops/sconce.png'),
+  ceilingFan: require('../../assets/tops/ceilingFan.png'),
+  tv: require('../../assets/tops/tv.png'),
+  plant: require('../../assets/tops/plant.png'),
+  planter: require('../../assets/tops/planter.png'),
+  rug: require('../../assets/tops/rug.png'),
+  crate: require('../../assets/tops/crate.png'),
+  bin: require('../../assets/tops/bin.png'),
+  displayCase: require('../../assets/tops/displayCase.png'),
 };
 
 // Returns the top-down PNG source for a kind, or null for the vector fallback.

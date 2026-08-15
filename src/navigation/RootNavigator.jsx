@@ -16,6 +16,7 @@ import { linking } from './linking';
 import { ROUTES } from './routes';
 import { navigationRef } from './navigationRef';
 import UnlockItemSheet from '@/components/sheets/UnlockItemSheet';
+import { loginRevenueCat } from '@/services/billing/revenueCat';
 
 // Onboarding
 import SplashScreen from '@/screens/onboarding/SplashScreen';
@@ -54,6 +55,7 @@ export default function RootNavigator() {
   const { colors, isDark } = useTheme();
   const onboardingComplete = useSettingsStore((s) => s.onboardingComplete);
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const user = useAuthStore((s) => s.user);
   const hydrateProjects = useProjectsStore((s) => s.hydrate);
   const flushPendingDeletes = useProjectsStore((s) => s.flushPendingDeletes);
   const syncUnreconciled = useProjectsStore((s) => s.syncUnreconciled);
@@ -65,18 +67,25 @@ export default function RootNavigator() {
   // minimum brand window elapses. Shown on every launch, before any routing.
   const appReady = useAppBootstrap();
 
-  // Once signed in, download the authoritative resources so the app works
-  // offline afterwards: projects, credit/entitlement state, the live catalog
-  // (which also merges this user's permanent item unlocks), and the premade
-  // design catalog. All no-op / bundled-fallback local-first.
+  // The catalog is a public endpoint (no auth required) — hydrate it on every
+  // cold start, not just when signed in, so a device's MMKV-cached catalog
+  // (thumbUrl/modelUrl/planTopUrl) never goes stale for a logged-out session
+  // and always picks up newly-published/re-seeded items on next launch.
+  useEffect(() => {
+    hydrateCatalog();
+  }, [hydrateCatalog]);
+
+  // Once signed in, download the remaining authoritative resources so the app
+  // works offline afterwards: projects, credit/entitlement state, and the
+  // premade design catalog. All no-op / bundled-fallback local-first.
   useEffect(() => {
     if (isAuthenticated) {
       hydrateProjects();
       refreshCredits();
-      hydrateCatalog();
       hydrateTemplates();
+      loginRevenueCat(user?.id);
     }
-  }, [isAuthenticated, hydrateProjects, refreshCredits, hydrateCatalog, hydrateTemplates]);
+  }, [isAuthenticated, user, hydrateProjects, refreshCredits, hydrateTemplates]);
 
   // When connectivity returns: link any locally-created projects that never got
   // a server id, then retry deletions queued while offline — so the live DB both

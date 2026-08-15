@@ -33,7 +33,7 @@ function main() {
   if (localBucket) {
     mkdirSync(localBucket, { recursive: true });
     cpSync(BUCKET_DIR, localBucket, { recursive: true });
-    log('publish', `copied models/ + thumbs/ -> ${localBucket}`);
+    log('publish', `copied models/ + thumbs/ + tops/ -> ${localBucket}`);
     log('publish', 'done. Backend .env BUCKET_PATH should point at this same folder for local dev.');
   } else {
     log('publish', 'LOCAL_BUCKET_PATH not set — files staged, not copied anywhere.');

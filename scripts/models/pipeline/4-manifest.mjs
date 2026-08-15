@@ -58,6 +58,7 @@ function main() {
       tags: [...(asset.tags || []), 'cc0', `src:${asset.source}:${asset.sourceId || asset.file}`],
       modelPath: `models/${asset.slug}.glb`,
       thumbPath: `thumbs/${asset.slug}.png`,
+      planTopPath: `tops/${asset.slug}.png`,
       source: asset.source,
       sourceUrl: sourceMeta.sourceUrl || null,
       license: sourceMeta.license || 'CC0',

@@ -13,9 +13,13 @@
       "distribution": "internal",
       "android": { "buildType": "apk" }
     },
+    "internal": {
+      "distribution": "internal",
+      "android": { "buildType": "app-bundle" }
+    },
     "production": {
       "autoIncrement": true,
-      "android": { "buildType": "apk" }
+      "android": { "buildType": "app-bundle" }
     }
   },
   "submit": {

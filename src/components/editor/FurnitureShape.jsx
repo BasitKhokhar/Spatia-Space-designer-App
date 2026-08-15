@@ -1,6 +1,7 @@
 import { Image as SkiaImage, useImage, RoundedRect, Line } from '@shopify/react-native-skia';
 
 import { planTopFor } from './planTops';
+import { useCatalogStore } from '@/store/useCatalogStore';
 
 // Darken/lighten a #rrggbb hex by factor f (1 = same, <1 darker, >1 lighter).
 function shade(hex, f) {
@@ -72,12 +73,15 @@ function CarTop({ f, w, d }) {
 // <Group> that already applies the item's translate + rotation, so this only
 // shapes the body in the item's local frame (origin at center, front = up / -Y).
 //
-// Priority: a registered top-down PNG (planTops.js) wins; otherwise a hand-drawn
-// top-down vector for known kinds (car); otherwise the original rounded-rect +
-// front-tick fallback. `useImage` returns null while decoding, so a vector shows
-// until any image is ready — never a blank gap.
+// Priority: a per-product top-down photo (catalogItem.planTopUrl, rendered by
+// the asset pipeline — see scripts/models/pipeline/3-thumbs.mjs) wins; then a
+// registered generic per-kind top-down PNG (planTops.js); otherwise a
+// hand-drawn top-down vector for known kinds (car); otherwise the original
+// rounded-rect + front-tick fallback. `useImage` returns null while decoding,
+// so a vector/generic layer shows until any image is ready — never a blank gap.
 export default function FurnitureShape({ f, w, d }) {
-  const src = planTopFor(f.kind);
+  const catalogItem = useCatalogStore((s) => s.byId(f.catalogId));
+  const src = catalogItem?.planTopUrl || planTopFor(f.kind);
   const image = useImage(src || null);
 
   if (src && image) {

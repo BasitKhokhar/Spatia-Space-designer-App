@@ -8,6 +8,8 @@ import { useCreditsStore } from '@/store/useCreditsStore';
 import { showRewardedAd } from '@/services/ads/admob';
 import { isRemote } from '@/services/api/client';
 import { billingApi } from '@/services/api/billingApi';
+import { REVENUECAT_ANDROID_API_KEY } from '@/constants/config';
+import { getOfferingPackages, purchasePackage, restorePurchases } from '@/services/billing/revenueCat';
 
 // The three plans the app ships with. Server values (price/features) override
 // these by `code` when a backend is attached; this is the offline fallback and
@@ -37,6 +39,7 @@ export default function PaywallScreen({ navigation, route }) {
   const refreshCredits = useCreditsStore((s) => s.refresh);
   const [busy, setBusy] = useState(false);
   const [serverPlans, setServerPlans] = useState(null);
+  const [rcPackages, setRcPackages] = useState([]);
 
   // Pull live plan pricing/features when a backend is attached.
   useEffect(() => {
@@ -48,21 +51,32 @@ export default function PaywallScreen({ navigation, route }) {
     return () => { alive = false; };
   }, []);
 
-  // Merge server plan data into the fixed Free/Basic/Premium ladder by code.
+  // Pull live RevenueCat offerings (empty until the RC dashboard is linked to
+  // Play Console — see the "unavailable" fallback in subscribe() below).
+  useEffect(() => {
+    let alive = true;
+    getOfferingPackages().then((pkgs) => { if (alive) setRcPackages(pkgs); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  // Merge server plan data (description/features) and RevenueCat's live store
+  // price into the fixed Free/Basic/Premium ladder by code/tier.
   const plans = useMemo(() => {
-    if (!serverPlans) return PLAN_DEFS;
-    const byCode = Object.fromEntries(serverPlans.map((p) => [p.code, p]));
+    const byCode = serverPlans ? Object.fromEntries(serverPlans.map((p) => [p.code, p])) : {};
+    const byTier = Object.fromEntries(rcPackages.map((p) => [p.identifier, p]));
     return PLAN_DEFS.map((def) => {
       const s = byCode[def.code];
-      if (!s) return def;
+      const rcPackage = byTier[def.tier];
       return {
         ...def,
-        price: typeof s.price === 'number' ? s.price : def.price,
-        features: Array.isArray(s.features) && s.features.length ? s.features : def.features,
-        name: s.name || def.name,
+        price: s && typeof s.price === 'number' ? s.price : def.price,
+        features: s && Array.isArray(s.features) && s.features.length ? s.features : def.features,
+        name: (s && s.name) || def.name,
+        rcPackage,
+        priceString: rcPackage?.product?.priceString,
       };
     });
-  }, [serverPlans]);
+  }, [serverPlans, rcPackages]);
 
   const watch = async () => {
     if (!canWatchAd()) return;
@@ -72,26 +86,59 @@ export default function PaywallScreen({ navigation, route }) {
     setBusy(false);
   };
 
-  const subscribe = (plan) => {
+  const subscribe = async (plan) => {
     if (plan.tier === 'free' || plan.tier === tier) return;
-    // Real Google Play purchase is completed by the store SDK (react-native-iap)
-    // and then verified via billingApi.verifySubscription. Until that native
-    // flow is wired, guide the user; in development, preview the entitlement so
-    // gating can be exercised end-to-end.
-    if (__DEV__) {
-      Alert.alert(
-        `Preview ${plan.name}?`,
-        'Development preview applies this plan locally so you can test gating. Real purchases go through Google Play.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: `Preview ${plan.name}`,
-            onPress: async () => { useCreditsStore.getState().setTier(plan.tier); await refreshCredits(); navigation.goBack(); },
-          },
-        ]
-      );
-    } else {
-      Alert.alert('Subscribe', `${plan.name} will be available through Google Play shortly.`);
+
+    // No RevenueCat key configured yet (dashboard not linked to Play Console)
+    // — fall back to a __DEV__-only local preview so gating can still be
+    // exercised end-to-end; guide the user otherwise.
+    if (!REVENUECAT_ANDROID_API_KEY) {
+      if (__DEV__) {
+        Alert.alert(
+          `Preview ${plan.name}?`,
+          'Development preview applies this plan locally so you can test gating. Real purchases go through Google Play.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: `Preview ${plan.name}`,
+              onPress: async () => { useCreditsStore.getState().setTier(plan.tier); await refreshCredits(); navigation.goBack(); },
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Subscribe', `${plan.name} will be available through Google Play shortly.`);
+      }
+      return;
+    }
+
+    if (!plan.rcPackage) {
+      Alert.alert('Unavailable', 'This plan is not available for purchase right now.');
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await purchasePackage(plan.rcPackage);
+      await billingApi.revenueCatSync();
+      await refreshCredits();
+      navigation.goBack();
+    } catch (err) {
+      if (!err?.userCancelled) Alert.alert('Purchase failed', err?.message || 'Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const restore = async () => {
+    setBusy(true);
+    try {
+      await restorePurchases();
+      await billingApi.revenueCatSync();
+      await refreshCredits();
+    } catch (err) {
+      Alert.alert('Restore failed', err?.message || 'Please try again.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -146,7 +193,7 @@ export default function PaywallScreen({ navigation, route }) {
                     ) : null}
                   </View>
                   <Text variant="title">
-                    {plan.price ? `$${plan.price}` : 'Free'}
+                    {plan.priceString || (plan.price ? `$${plan.price}` : 'Free')}
                     <Text variant="caption" color="ink3">{plan.period}</Text>
                   </Text>
                 </View>
@@ -202,11 +249,23 @@ export default function PaywallScreen({ navigation, route }) {
           ) : null}
         </ScrollView>
 
+        {REVENUECAT_ANDROID_API_KEY ? (
+          <Text
+            variant="bodySm"
+            color="accent"
+            align="center"
+            style={{ marginTop: 14, fontFamily: 'Manrope_700Bold' }}
+            onPress={busy ? undefined : restore}
+          >
+            Restore purchases
+          </Text>
+        ) : null}
+
         <Text
           variant="bodySm"
           color="ink3"
           align="center"
-          style={{ marginTop: 14, fontFamily: 'Manrope_700Bold' }}
+          style={{ marginTop: 10, fontFamily: 'Manrope_700Bold' }}
           onPress={() => navigation.goBack()}
         >
           Maybe later

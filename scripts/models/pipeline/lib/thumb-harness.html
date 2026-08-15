@@ -13,7 +13,12 @@
   absolute file:// paths by 3-thumbs.mjs before each navigation (import maps
   can't use relative specifiers reliably across a temp-file copy).
   Query params: glb (file:// URL to the model), size (px, square canvas),
-  azimuth/elevation (camera angle, degrees).
+  azimuth/elevation (camera angle, degrees), view ('iso' default 3/4 perspective
+  shot, or 'top' for a straight-down orthographic shot used as the 2D
+  floor-plan icon — see src/components/editor/planTops.js for the convention
+  that view must follow: the model's front (+Z — this app's convention, see
+  src/three/modelRegistry.js ORIENTATION note; NOT raw glTF -Z-forward)
+  renders toward the TOP of the image).
 -->
 <html>
   <head>
@@ -43,6 +48,7 @@
       const size = parseInt(params.get('size') || '512', 10);
       const azimuthDeg = parseFloat(params.get('azimuth') || '45');
       const elevationDeg = parseFloat(params.get('elevation') || '35');
+      const view = params.get('view') || 'iso';
 
       async function main() {
         const canvas = document.createElement('canvas');
@@ -67,6 +73,13 @@
         key.position.set(3, 6, 4);
         scene.add(key);
         scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+        if (view === 'top') {
+          // A flat top-down icon reads better evenly lit than key-lit — add a
+          // straight-down fill so there's no harsh directional shadow.
+          const fill = new THREE.DirectionalLight(0xffffff, 1.5);
+          fill.position.set(0, 10, 0);
+          scene.add(fill);
+        }
 
         const gltf = await new GLTFLoader().loadAsync(glbUrl);
         const model = gltf.scene;
@@ -79,16 +92,36 @@
         const sphere = box.getBoundingSphere(new THREE.Sphere());
         model.position.sub(sphere.center);
 
-        const camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
-        const dist = sphere.radius / Math.sin((camera.fov * Math.PI) / 180 / 2) * 1.35;
-        const az = (azimuthDeg * Math.PI) / 180;
-        const el = (elevationDeg * Math.PI) / 180;
-        camera.position.set(
-          dist * Math.cos(el) * Math.sin(az),
-          dist * Math.sin(el),
-          dist * Math.cos(el) * Math.cos(az)
-        );
-        camera.lookAt(0, 0, 0);
+        let camera;
+        if (view === 'top') {
+          // Orthographic, looking straight down world -Y, framed to the
+          // model's XZ footprint (not the bounding sphere — a flat rug or a
+          // tall lamp should each fill the frame by their actual footprint).
+          // camera.up = +Z so the model's front renders toward the TOP of the
+          // image, per planTops.js's convention. NOTE: this app's models face
+          // +Z with their tall mass (backrest/headboard) toward -Z — see
+          // src/three/modelRegistry.js's ORIENTATION note — NOT the raw glTF
+          // -Z-forward convention, so this is +Z, not -Z.
+          const size = new THREE.Vector3();
+          box.getSize(size);
+          const halfExtent = Math.max(size.x, size.z, 0.01) / 2 * 1.08;
+          const camHeight = Math.max(sphere.radius, size.y) * 4 + 1;
+          camera = new THREE.OrthographicCamera(-halfExtent, halfExtent, halfExtent, -halfExtent, 0.01, camHeight * 4);
+          camera.position.set(0, camHeight, 0);
+          camera.up.set(0, 0, 1);
+          camera.lookAt(0, 0, 0);
+        } else {
+          camera = new THREE.PerspectiveCamera(35, 1, 0.01, 100);
+          const dist = sphere.radius / Math.sin((camera.fov * Math.PI) / 180 / 2) * 1.35;
+          const az = (azimuthDeg * Math.PI) / 180;
+          const el = (elevationDeg * Math.PI) / 180;
+          camera.position.set(
+            dist * Math.cos(el) * Math.sin(az),
+            dist * Math.sin(el),
+            dist * Math.cos(el) * Math.cos(az)
+          );
+          camera.lookAt(0, 0, 0);
+        }
 
         renderer.render(scene, camera);
 

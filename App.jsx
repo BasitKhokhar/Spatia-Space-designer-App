@@ -9,6 +9,7 @@ import { ThemeProvider } from '@/theme/ThemeProvider';
 import { useAppFonts } from '@/theme/useAppFonts';
 import RootNavigator from '@/navigation/RootNavigator';
 import { initMonetization } from '@/services/ads/admob';
+import { initPurchases } from '@/services/billing/revenueCat';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -18,6 +19,7 @@ export default function App() {
   useEffect(() => {
     // Fire-and-forget: consent + ads SDK init. Never blocks the UI.
     initMonetization().catch(() => {});
+    initPurchases().catch(() => {});
   }, []);
 
   const onLayoutRootView = useCallback(async () => {

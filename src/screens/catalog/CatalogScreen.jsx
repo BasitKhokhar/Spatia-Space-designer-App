@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { View, ScrollView } from 'react-native';
+import { useCallback, useMemo, useState } from 'react';
+import { View, ScrollView, RefreshControl } from 'react-native';
 
 import Screen from '@/components/ui/Screen';
 import Text from '@/components/ui/Text';
@@ -22,6 +22,16 @@ export default function CatalogScreen({ navigation, route }) {
   const subscriber = useCreditsStore((s) => s.tier !== 'free');
   const allItems = useCatalogStore((s) => s.items);
   const catObjects = useCatalogStore((s) => s.categories);
+  const hydrateCatalog = useCatalogStore((s) => s.hydrate);
+  const [refreshing, setRefreshing] = useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await hydrateCatalog();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [hydrateCatalog]);
   const CATEGORIES = useMemo(
     () => ['All', ...categoryNamesWithItems(allItems, catObjects)],
     [allItems, catObjects]
@@ -88,7 +98,11 @@ export default function CatalogScreen({ navigation, route }) {
         ))}
       </ScrollView>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 120 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
         <View
           style={{
             flexDirection: 'row',

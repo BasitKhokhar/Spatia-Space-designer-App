@@ -11,7 +11,7 @@ import { pathToFileURL } from 'node:url';
 import puppeteer from 'puppeteer';
 import { ASSETS } from './assets.config.mjs';
 import {
-  PIPELINE_ROOT, MODELS_OUT_DIR, THUMBS_OUT_DIR, ensureDir, log, parseOnlyFilter,
+  PIPELINE_ROOT, MODELS_OUT_DIR, THUMBS_OUT_DIR, TOPS_OUT_DIR, ensureDir, log, parseOnlyFilter,
 } from './lib/common.mjs';
 
 const SIZE = 512;
@@ -36,7 +36,7 @@ function renderHarness(tmpDir) {
   return outPath;
 }
 
-async function renderThumb(browser, harnessPath, glbPath, azimuth, elevation) {
+async function renderThumb(browser, harnessPath, glbPath, { view = 'iso', azimuth, elevation } = {}) {
   const page = await browser.newPage();
   await page.setViewport({ width: SIZE, height: SIZE });
 
@@ -44,7 +44,12 @@ async function renderThumb(browser, harnessPath, glbPath, azimuth, elevation) {
   // failure mode here (it "succeeds" and ships an empty tile).
   page.on('pageerror', (e) => log('thumbs', `  page error: ${e.message}`));
 
-  const url = `${pathToFileURL(harnessPath).href}?glb=${encodeURIComponent(pathToFileURL(glbPath).href)}&size=${SIZE}&azimuth=${azimuth}&elevation=${elevation}`;
+  const params = new URLSearchParams({ glb: pathToFileURL(glbPath).href, size: String(SIZE), view });
+  if (view !== 'top') {
+    params.set('azimuth', String(azimuth));
+    params.set('elevation', String(elevation));
+  }
+  const url = `${pathToFileURL(harnessPath).href}?${params.toString()}`;
   await page.goto(url, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__thumbDone === true || window.__thumbError, { timeout: 30000 });
 
@@ -80,20 +85,28 @@ async function main() {
     for (const asset of ASSETS) {
       if (only && !only.has(asset.slug)) continue;
       const glbPath = join(MODELS_OUT_DIR, `${asset.slug}.glb`);
-      log('thumbs', `${asset.slug}: rendering...`);
-      const png = await renderThumb(
-        browser,
-        harnessPath,
-        glbPath,
-        asset.thumbAzimuth ?? DEFAULT_AZIMUTH,
-        asset.thumbElevation ?? DEFAULT_ELEVATION
-      );
+
+      log('thumbs', `${asset.slug}: rendering 3/4 thumbnail...`);
+      const png = await renderThumb(browser, harnessPath, glbPath, {
+        view: 'iso',
+        azimuth: asset.thumbAzimuth ?? DEFAULT_AZIMUTH,
+        elevation: asset.thumbElevation ?? DEFAULT_ELEVATION,
+      });
       const outPath = join(ensureDir(THUMBS_OUT_DIR), `${asset.slug}.png`);
       writeFileSync(outPath, png);
       log('thumbs', `${asset.slug}: wrote ${(png.length / 1024).toFixed(0)}KB -> ${outPath}`);
+
+      // Second pass: a true straight-down orthographic render for the 2D
+      // floor-plan editor's per-product top-down icon (see planTops.js).
+      log('thumbs', `${asset.slug}: rendering top-down plan icon...`);
+      const topPng = await renderThumb(browser, harnessPath, glbPath, { view: 'top' });
+      const topOutPath = join(ensureDir(TOPS_OUT_DIR), `${asset.slug}.png`);
+      writeFileSync(topOutPath, topPng);
+      log('thumbs', `${asset.slug}: wrote ${(topPng.length / 1024).toFixed(0)}KB -> ${topOutPath}`);
+
       done++;
     }
-    log('thumbs', `done: ${done} thumbnail(s).`);
+    log('thumbs', `done: ${done} item(s), ${done * 2} image(s) rendered.`);
   } finally {
     await browser.close();
     rmSync(tmpDir, { recursive: true, force: true });
