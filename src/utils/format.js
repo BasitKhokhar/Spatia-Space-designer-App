@@ -17,3 +17,8 @@ export function timeAgo(timestamp) {
 export function pluralize(count, singular, plural) {
   return `${count} ${count === 1 ? singular : plural || `${singular}s`}`;
 }
+
+export function formatArea(width, length) {
+  if (!width || !length) return '';
+  return `${(width * length).toFixed(1)} m²`;
+}

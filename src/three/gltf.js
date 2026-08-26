@@ -6,10 +6,22 @@
 // box) is shown instead. No extra dependency — we read the asset's bytes with
 // expo-file-system and hand the ArrayBuffer straight to three's GLTFLoader.parse
 // (so embedded textures in the .glb load with it, no network/XHR involved).
+//
+// Bytes come from expo-file-system's File.arrayBuffer(), which crosses the JSI
+// boundary as binary. The obvious alternative — readAsStringAsync(base64) plus a
+// JS decode loop — costs roughly four times the file size in peak heap (the
+// base64 string is UTF-16 in Hermes) and blocks the JS thread for the whole
+// decode, which freezes every gesture on the 3D screen while a model loads.
 
 import { Asset } from 'expo-asset';
-import * as FileSystem from 'expo-file-system/legacy';
+import { File } from 'expo-file-system';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+
+// Anything larger than this is a mis-published asset, not a piece of furniture.
+// Refusing it degrades that one item to its procedural box; parsing it risks
+// taking the whole app down with a native OOM. The pipeline's own output tops
+// out around 4MB (scripts/models/pipeline/2-optimize.mjs).
+const MAX_GLB_BYTES = 12 * 1024 * 1024;
 
 // --- React Native compatibility shim ---------------------------------------
 // three's GLTFLoader sniffs the browser via `navigator.userAgent` (to decide
@@ -31,46 +43,37 @@ if (typeof navigator !== 'undefined' && navigator.userAgent == null) {
   }
 }
 
-const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-const LOOKUP = (() => {
-  const t = new Uint8Array(256);
-  for (let i = 0; i < B64.length; i++) t[B64.charCodeAt(i)] = i;
-  return t;
-})();
-
-// Decode a base64 string to an ArrayBuffer without relying on atob (not always
-// present in the RN runtime).
-function base64ToArrayBuffer(b64) {
-  let len = b64.length;
-  if (b64[len - 1] === '=') len--;
-  if (b64[len - 1] === '=') len--;
-  const bytes = new Uint8Array((len * 3) / 4 | 0);
-  let p = 0;
-  for (let i = 0; i < b64.length; i += 4) {
-    const e1 = LOOKUP[b64.charCodeAt(i)];
-    const e2 = LOOKUP[b64.charCodeAt(i + 1)];
-    const e3 = LOOKUP[b64.charCodeAt(i + 2)];
-    const e4 = LOOKUP[b64.charCodeAt(i + 3)];
-    bytes[p++] = (e1 << 2) | (e2 >> 4);
-    if (p < bytes.length) bytes[p++] = ((e2 & 15) << 4) | (e3 >> 2);
-    if (p < bytes.length) bytes[p++] = ((e3 & 3) << 6) | e4;
-  }
-  return bytes.buffer;
-}
-
-// Parses a .glb at a local file:// URI (base64 -> ArrayBuffer -> GLTFLoader).
-// Exported so src/three/remoteModels.js can reuse it for models downloaded
-// from the catalog API instead of require()'d from the bundle.
+// Parses a .glb at a local file:// URI. Exported so src/three/remoteModels.js
+// can reuse it for models downloaded from the catalog API instead of require()'d
+// from the bundle.
 export async function parseGlbAtUri(uri) {
-  const b64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-  const buffer = base64ToArrayBuffer(b64);
+  const t0 = Date.now();
+  const file = new File(uri);
+  const size = file.size ?? 0;
+  if (size > MAX_GLB_BYTES) {
+    throw new Error(`glb too large (${size} bytes, limit ${MAX_GLB_BYTES}): ${uri}`);
+  }
+
+  const buffer = await file.arrayBuffer();
+  const t1 = Date.now();
+  console.log(`[3D] read glb (${t1 - t0}ms), byteLength=${buffer.byteLength}: ${uri}`);
+
   const loader = new GLTFLoader();
   return new Promise((resolve, reject) => {
-    loader.parse(buffer, '', resolve, reject);
+    loader.parse(
+      buffer,
+      '',
+      (gltf) => {
+        console.log(`[3D] GLTFLoader.parse done (${Date.now() - t1}ms): ${uri}`);
+        resolve(gltf);
+      },
+      (err) => {
+        console.error(`[3D] GLTFLoader.parse failed (${Date.now() - t1}ms): ${uri}`, err?.message || err);
+        reject(err);
+      }
+    );
   });
 }
-
-export { base64ToArrayBuffer };
 
 async function loadGLB(moduleRef) {
   const asset = Asset.fromModule(moduleRef);

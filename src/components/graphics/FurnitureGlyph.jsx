@@ -23,7 +23,14 @@ export default function FurnitureGlyph({ kind = 'sofa', catalogId, size = 80, co
   const { colors, isDark } = useTheme();
 
   if (thumbUrl) {
-    return <Image source={{ uri: thumbUrl }} style={{ width: size, height: size }} resizeMode="contain" />;
+    return (
+      <Image
+        source={{ uri: thumbUrl }}
+        style={{ width: size, height: size }}
+        resizeMode="contain"
+        onError={(e) => console.warn('[thumb] remote thumbnail failed to load', { thumbUrl, error: e?.nativeEvent?.error })}
+      />
+    );
   }
 
   // Real product thumbnail takes precedence over the vector glyph.

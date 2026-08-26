@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useMemo } from 'react';
-import { View, Pressable, StyleSheet, ScrollView, Animated, useWindowDimensions } from 'react-native';
+import { AppState, View, Pressable, StyleSheet, ScrollView, Animated, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { Canvas } from '@react-three/fiber/native';
@@ -24,6 +24,9 @@ import { useTheme } from '@/theme/useTheme';
 import { useActiveProject } from '@/store/useProjectsStore';
 import { useCreditsStore } from '@/store/useCreditsStore';
 import Room3D from '@/three/Room3D';
+import AppErrorBoundary from '@/components/AppErrorBoundary';
+import { useCatalogStore } from '@/store/useCatalogStore';
+import { preloadRemoteModels } from '@/three/remoteModels';
 import ViewerControlsDrawer from '@/components/viewer/ViewerControlsDrawer';
 import { LIGHTING, LIGHTING_ORDER } from '@/three/lighting';
 import { ROUTES } from '@/navigation/routes';
@@ -162,6 +165,36 @@ export default function ThreeDViewScreen({ navigation }) {
     kick(); // let the fling / damping settle out
   };
 
+  // CameraRig re-arms the demand loop each frame while the camera is moving, so
+  // in steady state the bracket kicks above are enough. But that chain only
+  // survives as long as frames keep being delivered: backgrounding the app
+  // pauses the GL surface, and the frame that would have re-armed never runs, so
+  // the camera comes back frozen until the next touch. Re-kick on resume.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') kick();
+    });
+    return () => sub.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Warm the download+parse cache for every placed item that has a published
+  // .glb. These go through the same 2-at-a-time queue as on-demand loads, so
+  // this staggers the work instead of letting N items race on first render —
+  // which is what spiked memory hard enough for Android to kill the process.
+  const catalogItems = useCatalogStore((s) => s.items);
+  useEffect(() => {
+    if (!catalogItems?.length) return;
+    const placed = new Set();
+    for (const f of floors) {
+      for (const item of f.plan?.furniture || []) {
+        if (item.catalogId) placed.add(item.catalogId);
+      }
+    }
+    if (!placed.size) return;
+    preloadRemoteModels(catalogItems.filter((it) => placed.has(it.id) && it.modelUrl));
+  }, [catalogItems, floors]);
+
   // Vertical orbit range: from almost straight-down (top-down plan view) past
   // the horizon so you can tilt low and look *up* at the structure. The rig
   // keeps the camera above the floor, so the lower range reads as a ground-level
@@ -234,6 +267,7 @@ export default function ThreeDViewScreen({ navigation }) {
     .onUpdate((e) => {
       cam.azimuth = start.azimuth + e.translationX * 0.008;
       cam.polar = clamp(start.polar - e.translationY * 0.006, POLAR_MIN, POLAR_MAX);
+      kick();
     })
     .onEnd((e) => {
       // Fling: convert release velocity (px/s) into angular momentum (rad/s)
@@ -282,6 +316,7 @@ export default function ThreeDViewScreen({ navigation }) {
         start.tx + w0 * (o0x * sinA + o0y * cosA) - w1 * (o1x * sinA + o1y * cosA);
       cam.target[2] =
         start.tz + w0 * (-o0x * cosA + o0y * sinA) - w1 * (-o1x * cosA + o1y * sinA);
+      kick();
     })
     .onFinalize(endTouch);
 
@@ -298,6 +333,7 @@ export default function ThreeDViewScreen({ navigation }) {
     })
     .onUpdate((e) => {
       cam.azimuth = start.rotAz - e.rotation;
+      kick();
     })
     .onEnd((e) => {
       // Carry the twist's release velocity into the spin momentum.
@@ -341,35 +377,40 @@ export default function ThreeDViewScreen({ navigation }) {
 
   return (
     <View style={{ flex: 1, backgroundColor: preset.background }}>
-      <Canvas
-        shadows
-        style={StyleSheet.absoluteFill}
-        camera={{ position: [6, 5, 6], fov: FOV }}
-        gl={{ antialias: true }}
-        // Cap the render resolution at 2x. With no dpr the canvas renders at the
-        // device's native ratio — 2.75-3x on a modern phone, which is 2x the
-        // fragments of a 2x buffer for detail nobody can resolve at arm's
-        // length. The freed GPU budget pays for the 2048 shadow map, 8x
-        // anisotropy and the real furniture models.
-        dpr={[1, 2]}
-        // Render on demand instead of a permanent 60fps loop. A parked 3D view
-        // previously kept the GPU at full tilt forever, which heats the device
-        // until it thermally throttles — the usual cause of "it was smooth at
-        // first, then got choppy". Scene edits invalidate automatically through
-        // the r3f reconciler; camera motion re-arms itself in CameraRig; and
-        // kick() covers mutations made outside both.
-        frameloop="demand"
-        onCreated={(state) => {
-          invalidateRef.current = state.invalidate;
-          // ACES rolls off highlights instead of clipping them — flat/blown-out
-          // without it, especially once PBR models with real specular hit the scene.
-          state.gl.toneMapping = ACESFilmicToneMapping;
-          state.invalidate();
-        }}
-      >
-        <Room3D floors={floors} visibleFloors={visibleFloors} lighting={lighting} cam={cam} cutaway={cutaway} />
-        {__DEV__ ? <PerfProbe onSample={logPerf} /> : null}
-      </Canvas>
+      <AppErrorBoundary label="3D" fallback={<CanvasFailed colors={colors} onBack={() => navigation.goBack()} />}>
+        <Canvas
+          shadows
+          style={StyleSheet.absoluteFill}
+          camera={{ position: [6, 5, 6], fov: FOV }}
+          // No MSAA: on expo-gl it costs a full extra colour buffer at dpr², which
+          // on a mid-range Android is memory better spent on the PBR models, and
+          // the edge quality it buys is barely visible at this pixel density.
+          gl={{ antialias: false }}
+          // Cap the render resolution at 1.5x. With no dpr the canvas renders at
+          // the device's native ratio — 2.75-3x on a modern phone, several times
+          // the fragments (and framebuffer bytes) of this for detail nobody can
+          // resolve at arm's length. The freed budget pays for the 2048 shadow
+          // map, 8x anisotropy and the real furniture models.
+          dpr={[1, 1.5]}
+          // Render on demand instead of a permanent 60fps loop. A parked 3D view
+          // previously kept the GPU at full tilt forever, which heats the device
+          // until it thermally throttles — the usual cause of "it was smooth at
+          // first, then got choppy". Scene edits invalidate automatically through
+          // the r3f reconciler; camera motion re-arms itself in CameraRig; and
+          // kick() covers mutations made outside both.
+          frameloop="demand"
+          onCreated={(state) => {
+            invalidateRef.current = state.invalidate;
+            // ACES rolls off highlights instead of clipping them — flat/blown-out
+            // without it, especially once PBR models with real specular hit the scene.
+            state.gl.toneMapping = ACESFilmicToneMapping;
+            state.invalidate();
+          }}
+        >
+          <Room3D floors={floors} visibleFloors={visibleFloors} lighting={lighting} cam={cam} cutaway={cutaway} />
+          {__DEV__ ? <PerfProbe onSample={logPerf} /> : null}
+        </Canvas>
+      </AppErrorBoundary>
 
       {/* Transparent touch layer sitting on top of the GL surface. R3F/native
           installs its own touch responder on the Canvas, which swallows drags
@@ -572,6 +613,25 @@ function Chip({ label, icon, active, accent = '#1B1A17', onPress, radius, bg = '
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+// Shown in place of the canvas when the 3D scene throws while rendering — a bad
+// GL context, or a scene-graph error outside any single item's ModelBoundary.
+// Without this the throw reaches the app-root boundary and blanks everything,
+// losing the user their project view over one unrenderable room.
+function CanvasFailed({ colors, onBack }) {
+  return (
+    <View style={[StyleSheet.absoluteFill, { alignItems: 'center', justifyContent: 'center', padding: 24 }]}>
+      <Icon name="cube" size={32} color={colors.ink2} />
+      <Text variant="h2" style={{ marginTop: 12, textAlign: 'center' }}>
+        3D view unavailable
+      </Text>
+      <Text color="ink2" style={{ marginTop: 6, textAlign: 'center' }}>
+        This plan could not be rendered in 3D on this device. Your project is safe — the 2D plan is unaffected.
+      </Text>
+      <Button title="Back to plan" onPress={onBack} fullWidth={false} style={{ marginTop: 20 }} />
+    </View>
   );
 }
 

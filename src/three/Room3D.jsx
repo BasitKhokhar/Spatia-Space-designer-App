@@ -238,6 +238,17 @@ function Casing({ localX, w, t, sill, height, window: isWindow }) {
 // A wall segment rendered as boxes, with door/window openings cut out.
 // `outward` (optional [x,z] normal) tags a perimeter wall so the cutaway culling
 // can hide it when the camera is on its outer side.
+//
+// WALLS DO NOT CAST SHADOWS — deliberately.
+// A single low sun through a closed shell throws hard, room-wide bands across
+// the floor and straight over the furniture, so half the plan sits in a dark
+// slab and the pieces the user actually placed become unreadable. The room is a
+// product view, not a lighting study: the sun's job here is to model the
+// *objects*, and every wall it passes through only subtracts from that. Walls
+// still RECEIVE, so furniture keeps throwing its shadow onto them, and each item
+// keeps its contact-shadow decal (contactShadow.js) so nothing floats.
+// Shape reads from the environment map instead, which shades faces by normal —
+// no occlusion, no bands.
 function WallMesh({ wall, cx, cz, height, color, openings, outward, mat = 'plaster' }) {
   const ax = wall.x1 - cx;
   const az = wall.y1 - cz;
@@ -268,7 +279,6 @@ function WallMesh({ wall, cx, cz, height, color, openings, outward, mat = 'plast
           <mesh
             key={`s${i}`}
             position={[(u0 + u1) / 2 - L / 2, height / 2, 0]}
-            castShadow
             receiveShadow
             geometry={boxGeo(w, height, t, tileOf(mat))}
             material={getMaterial({ id: mat, color, rough: 0.92 })}
@@ -305,7 +315,6 @@ function WallMesh({ wall, cx, cz, height, color, openings, outward, mat = 'plast
             {lintelH > 0.01 ? (
               <mesh
                 position={[localX, topOfOpening + lintelH / 2, 0]}
-                castShadow
                 receiveShadow
                 geometry={boxGeo(w, lintelH, t, tileOf(mat))}
                 material={getMaterial({ id: mat, color })}
@@ -314,7 +323,6 @@ function WallMesh({ wall, cx, cz, height, color, openings, outward, mat = 'plast
             {o.sill > 0.01 ? (
               <mesh
                 position={[localX, o.sill / 2, 0]}
-                castShadow
                 receiveShadow
                 geometry={boxGeo(w, o.sill, t, tileOf(mat))}
                 material={getMaterial({ id: mat, color })}

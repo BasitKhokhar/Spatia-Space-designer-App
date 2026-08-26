@@ -4,15 +4,33 @@ import Card from '@/components/ui/Card';
 import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
 import PlanThumbnail from '@/components/graphics/PlanThumbnail';
-import { timeAgo, pluralize } from '@/utils/format';
+import { roomTypeById } from '@/data/roomTypes';
+import { timeAgo, pluralize, formatArea } from '@/utils/format';
 
 // Grid card for a saved project. Pass `onDelete` to show a delete affordance
 // (a circular trash button on the thumbnail); it fires without opening the card.
 export default function ProjectCard({ project, onPress, onDelete, style }) {
+  const area = formatArea(project.plan?.width, project.plan?.length);
+
   return (
     <Card onPress={onPress} padded={false} style={[{ overflow: 'hidden' }, style]}>
       <View>
         <PlanThumbnail variant={project.variant} height={96} />
+        <View
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            width: 26,
+            height: 26,
+            borderRadius: 13,
+            backgroundColor: 'rgba(20,17,15,0.55)',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icon name={roomTypeById(project.roomType).icon} size={13} color="#fff" strokeWidth={2} />
+        </View>
         {onDelete ? (
           <Pressable
             onPress={onDelete}
@@ -38,8 +56,9 @@ export default function ProjectCard({ project, onPress, onDelete, style }) {
         <Text variant="titleSm" numberOfLines={1}>
           {project.name}
         </Text>
-        <Text variant="bodySm" color="ink3" style={{ marginTop: 3 }}>
-          {pluralize(project.rooms, 'room')} · {timeAgo(project.updatedAt)}
+        <Text variant="bodySm" color="ink3" style={{ marginTop: 3 }} numberOfLines={1}>
+          {pluralize(project.rooms, 'room')}
+          {area ? ` · ${area}` : ''} · {timeAgo(project.updatedAt)}
         </Text>
       </View>
     </Card>

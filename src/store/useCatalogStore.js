@@ -48,8 +48,9 @@ export const useCatalogStore = create(
           const payload = await fetchCatalog();
           const { items, categories } = normalize(payload);
           if (items.length) set({ items, categories, lastSyncedAt: Date.now() });
-        } catch {
+        } catch (err) {
           // keep the cached (or bundled) catalog on network error
+          console.warn('[catalog] hydrate failed, keeping cached catalog', err?.message || err);
         }
         // Merge the server's permanent unlock records into the local store so
         // previously-unlocked items stay unlocked across devices/reinstalls.

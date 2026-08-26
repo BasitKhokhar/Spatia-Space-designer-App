@@ -6,7 +6,7 @@
 // See environment.js for why.
 
 import { useEffect } from 'react';
-import { useThree } from '@react-three/fiber';
+import { useThree } from '@react-three/fiber/native';
 import { PMREMGenerator } from 'three';
 import { buildEnvScene, disposeEnvScene, envSupported } from './environment';
 import { setEnvIntensity } from './materials/library';

@@ -1,14 +1,15 @@
 import { useMemo, useState } from 'react';
-import { View, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Rect, Line, G } from 'react-native-svg';
 
 import Text from '@/components/ui/Text';
 import CreditPill from '@/components/ui/CreditPill';
 import SectionHeader from '@/components/ui/SectionHeader';
-import ProjectCard from '@/components/project/ProjectCard';
-import AiSpotlight from '@/components/home/AiSpotlight';
+import HeroCarousel from '@/components/home/HeroCarousel';
+import QuickStartRow from '@/components/home/QuickStartRow';
+import RecentProjectsRail from '@/components/home/RecentProjectsRail';
+import UpgradeBanner from '@/components/home/UpgradeBanner';
 import EmptyState from '@/components/feedback/EmptyState';
 import ConfirmDeleteModal from '@/components/feedback/ConfirmDeleteModal';
 import Icon from '@/components/icons/Icon';
@@ -51,87 +52,15 @@ function Avatar({ initial }) {
   );
 }
 
-function NewProjectBanner({ onPress }) {
-  const { colors, radius, shadows } = useTheme();
-  return (
-    <View style={{ marginTop: 22 }}>
-      {/* No fixed height: the copy and the button decide how tall this is, so
-          the button can never end up jammed against the bottom edge the way a
-          hard-coded 132 forced it to. */}
-      <LinearGradient
-        colors={[accent.a400, accent.a500, accent.a700]}
-        locations={[0, 0.45, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[
-          {
-            borderRadius: radius.xxl,
-            overflow: 'hidden',
-            paddingHorizontal: 22,
-            paddingTop: 20,
-            paddingBottom: 22,
-            borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.16)',
-          },
-          shadows.accent,
-        ]}
-      >
-        {/* Same blueprint language as the AI card, so the two read as one set. */}
-        <Svg
-          viewBox="0 0 340 150"
-          preserveAspectRatio="xMidYMid slice"
-          style={StyleSheet.absoluteFill}
-        >
-          <G opacity={0.22}>
-            <Rect x="232" y="34" width="112" height="86" rx="5" stroke="#fff" strokeWidth={1.6} fill="none" />
-            <Line x1="232" y1="80" x2="288" y2="80" stroke="#fff" strokeWidth={1.6} />
-            <Line x1="288" y1="80" x2="288" y2="120" stroke="#fff" strokeWidth={1.6} />
-            <Line x1="300" y1="34" x2="300" y2="52" stroke="#fff" strokeWidth={1.6} />
-          </G>
-        </Svg>
-
-        <Text variant="label" style={{ color: '#FFE7DE', fontSize: 11, letterSpacing: 0.8 }}>
-          START FRESH
-        </Text>
-        <Text style={{ color: '#fff', fontFamily: 'Sora_700Bold', fontSize: 22, marginTop: 6 }}>
-          New Project
-        </Text>
-        <Text variant="bodySm" style={{ color: '#FBE6DD', marginTop: 4, maxWidth: 220 }}>
-          Start from a blank canvas or a ready-made layout.
-        </Text>
-        {/* The banner itself is just artwork — "Create" is the only hit target,
-            so tapping anywhere on a large block no longer navigates. */}
-        <Pressable
-          onPress={onPress}
-          accessibilityRole="button"
-          hitSlop={8}
-          style={({ pressed }) => ({
-            marginTop: 18,
-            alignSelf: 'flex-start',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-            backgroundColor: pressed ? '#F0E4DE' : '#fff',
-            paddingHorizontal: 18,
-            paddingVertical: 12,
-            borderRadius: radius.pill,
-          })}
-        >
-          <Text style={{ color: colors.accent, fontFamily: 'Manrope_700Bold', fontSize: 14 }}>Create</Text>
-          <Icon name="arrow-right" size={15} color={colors.accent} strokeWidth={2.4} />
-        </Pressable>
-      </LinearGradient>
-    </View>
-  );
-}
-
 export default function HomeScreen({ navigation }) {
   const { colors } = useTheme();
   const user = useAuthStore((s) => s.user);
   const balance = useCreditsStore((s) => s.balance);
+  const tier = useCreditsStore((s) => s.tier);
   const projects = useProjectsStore((s) => s.projects);
   const setActive = useProjectsStore((s) => s.setActive);
   const deleteProject = useProjectsStore((s) => s.deleteProject);
+  const createProject = useProjectsStore((s) => s.createProject);
   // A generation the user left running — the spotlight card takes them back to
   // it rather than offering to start a second one.
   const aiJobId = useAiBriefStore((s) => s.jobId);
@@ -166,6 +95,14 @@ export default function HomeScreen({ navigation }) {
       ? navigation.navigate(ROUTES.aiGenerating, { jobId: aiJobId })
       : navigation.navigate(ROUTES.aiWizard);
 
+  // Shortcuts under the hero carousel — same destinations as the two
+  // non-AI choices on the full "how do you want to start" screen.
+  const startBlank = () => {
+    createProject({});
+    navigation.navigate(ROUTES.editor);
+  };
+  const browseTemplates = () => navigation.navigate(ROUTES.category);
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
@@ -193,9 +130,15 @@ export default function HomeScreen({ navigation }) {
 
         {/* AI first, above New Project: it's the feature most people won't
             discover on their own, and the fastest route to a finished plan. */}
-        <View style={{ paddingHorizontal: 12 }}>
-          <AiSpotlight onPress={startAi} inProgress={!!aiJobId} style={{ marginTop: 22 }} />
-          <NewProjectBanner onPress={startNew} />
+        <HeroCarousel
+          onAiPress={startAi}
+          aiInProgress={!!aiJobId}
+          onCreatePress={startNew}
+          style={{ marginTop: 22 }}
+        />
+
+        <View style={{ paddingHorizontal: 24 }}>
+          <QuickStartRow onBlank={startBlank} onTemplates={browseTemplates} style={{ marginTop: 16 }} />
         </View>
 
         {projects.length === 0 ? (
@@ -221,28 +164,20 @@ export default function HomeScreen({ navigation }) {
                 ? `Your ${RECENT_LIMIT} latest — the rest are in Projects.`
                 : 'Pick up where you left off.'}
             </Text>
-            <View
-              style={{
-                flexDirection: 'row',
-                flexWrap: 'wrap',
-                justifyContent: 'space-between',
-                paddingHorizontal: 24,
-                marginTop: 16,
-                gap: 14,
-              }}
-            >
-              {recent.map((p) => (
-                <ProjectCard
-                  key={p.id}
-                  project={p}
-                  onPress={() => openProject(p)}
-                  onDelete={() => setPendingDelete(p)}
-                  style={{ width: '47%' }}
-                />
-              ))}
-            </View>
+            <RecentProjectsRail
+              projects={recent}
+              onOpen={openProject}
+              onDelete={setPendingDelete}
+              style={{ marginTop: 16 }}
+            />
           </>
         )}
+
+        {tier === 'free' ? (
+          <View style={{ paddingHorizontal: 24, marginTop: 28 }}>
+            <UpgradeBanner onPress={() => navigation.navigate(ROUTES.paywall)} />
+          </View>
+        ) : null}
       </ScrollView>
 
       <ConfirmDeleteModal

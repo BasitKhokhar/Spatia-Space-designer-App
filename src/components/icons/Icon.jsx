@@ -500,6 +500,16 @@ const ICONS = {
       <Circle cx="16" cy="17.5" r="1.6" stroke={c} strokeWidth={w} fill="none" />
     </G>
   ),
+  gem: (c, w) => (
+    <Path
+      d="M6 3 H18 L22 9 L12 21 L2 9 Z M2 9 H22 M9 3 L7 9 L12 21 L17 9 L15 3"
+      stroke={c}
+      strokeWidth={w}
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
   logout: (c, w) => (
     <Path
       d="M15 4 H6 a2 2 0 0 0 -2 2 V18 a2 2 0 0 0 2 2 H15 M10 12 H21 M18 9 L21 12 L18 15"

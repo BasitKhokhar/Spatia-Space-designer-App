@@ -932,7 +932,7 @@ function GenericBox({ w, d, h, color }) {
 // ---- structure builders ---------------------------------------------------
 
 // A room shell: polygon floor slab + wall around every edge with door/window openings cut out.
-function RoomShell({ item, w, d, h, kind, points, wallThickness, wallColor, floorColor, plan }) {
+function RoomShell({ item, w, d, h, kind, points, wallThickness, openEdges, wallColor, floorColor, plan }) {
   // Everything below is derived geometry, and it is expensive: the opening scan is
   // O(furniture x edges), so a 3-room plan with 200 items ran ~2,400 wallHit tests
   // PER RENDER on the JS thread — the reason dragging an item felt sticky. None of
@@ -995,8 +995,14 @@ function RoomShell({ item, w, d, h, kind, points, wallThickness, wallColor, floo
     const itemX = item?.x ?? 0;
     const itemY = item?.y ?? 0;
 
+    // Walls the user deleted in 2D (double-tap a side -> Delete Wall) are recorded
+    // as edge indices on the item. Same indexing as the 2D stroke path: edge i runs
+    // pts[i] -> pts[i+1], so skipping i here leaves exactly the gap 2D shows.
+    const openSet = new Set(openEdges || []);
+
     const edges = [];
     for (let i = 0; i < pts.length; i++) {
+      if (openSet.has(i)) continue;
       const a = pts[i];
       const b = pts[(i + 1) % pts.length];
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 0.01;
@@ -1042,7 +1048,7 @@ function RoomShell({ item, w, d, h, kind, points, wallThickness, wallColor, floo
     }
 
     return { pts, t, floorShape, floorKey, floorMat, wallMat, edges };
-  }, [points, kind, w, d, wallThickness, plan, item]);
+  }, [points, kind, w, d, wallThickness, openEdges, plan, item]);
 
   const { pts, t, floorShape, floorKey, floorMat, wallMat, edges } = geo;
 
@@ -1055,13 +1061,15 @@ function RoomShell({ item, w, d, h, kind, points, wallThickness, wallColor, floo
         geometry={shapeGeo(floorShape, floorKey, tileOf(floorMat))}
         material={getMaterial({ id: floorMat, color: floorColor, side: DoubleSide })}
       />
+      {/* cast={false} on every wall piece below: see the note on WallMesh in
+          Room3D.jsx. A shell's own walls must not band the furniture inside it. */}
       {edges.map((e, i) => (
         <group key={i} position={[e.mx, 0, e.mz]} rotation={[0, -e.ang, 0]}>
           {e.spans.map(([u0, u1], j) => {
             const spanW = u1 - u0;
             if (spanW <= 0.001) return null;
             const posX = (u0 + u1) / 2 - e.len / 2;
-            return <Box key={`s${j}`} w={spanW} h={h} d={t} x={posX} y={h / 2} mat={wallMat} color={wallColor} rough={0.9} />;
+            return <Box key={`s${j}`} w={spanW} h={h} d={t} x={posX} y={h / 2} mat={wallMat} color={wallColor} rough={0.9} cast={false} />;
           })}
           {e.ops.map((op, j) => {
             const posX = (op.u0 + op.u1) / 2 - e.len / 2;
@@ -1071,10 +1079,10 @@ function RoomShell({ item, w, d, h, kind, points, wallThickness, wallColor, floo
             return (
               <group key={`o${j}`}>
                 {lintelH > 0.01 ? (
-                  <Box w={opW} h={lintelH} d={t} x={posX} y={top + lintelH / 2} mat={wallMat} color={wallColor} rough={0.9} />
+                  <Box w={opW} h={lintelH} d={t} x={posX} y={top + lintelH / 2} mat={wallMat} color={wallColor} rough={0.9} cast={false} />
                 ) : null}
                 {op.sill > 0.01 ? (
-                  <Box w={opW} h={op.sill} d={t} x={posX} y={op.sill / 2} mat={wallMat} color={wallColor} rough={0.9} />
+                  <Box w={opW} h={op.sill} d={t} x={posX} y={op.sill / 2} mat={wallMat} color={wallColor} rough={0.9} cast={false} />
                 ) : null}
               </group>
             );
@@ -1196,9 +1204,11 @@ function StructureGeometry({ item, w, d, h, wallColor, floorColor, plan }) {
       // landing / low platform slab
       return <Box w={w} h={Math.max(h, 0.06)} d={d} y={Math.max(h, 0.06) / 2} color={color} rough={0.85} />;
     }
-    return <RoomShell item={item} w={w} d={d} h={h} kind={item.kind} points={item.shape?.points} wallThickness={item.shape?.wallThickness} wallColor={wallColor || color} floorColor={floorColor || shade(color, 1.1)} plan={plan} />;
+    return <RoomShell item={item} w={w} d={d} h={h} kind={item.kind} points={item.shape?.points} wallThickness={item.shape?.wallThickness} openEdges={item.shape?.openEdges} wallColor={wallColor || color} floorColor={floorColor || shade(color, 1.1)} plan={plan} />;
   }
-  if (type === 'wall') return <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.9} />;
+  // A placed wall is a wall: same reason it does not cast as the shell walls in
+  // Room3D — a free-standing panel would drop a hard band over everything behind it.
+  if (type === 'wall') return <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.9} cast={false} />;
   if (type === 'column') return item.shape.round
     ? <Cyl r={Math.min(w, d) / 2} h={h} y={h / 2} color={color} rough={0.85} seg={22} />
     : <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.85} />;
@@ -1289,8 +1299,28 @@ class ModelBoundary extends Component {
     return { failed: true };
   }
 
-  componentDidCatch() {
-    // Handled by rendering the procedural fallback; swallow so the scene lives.
+  componentDidUpdate(prev) {
+    // React reuses this instance when the surrounding list re-renders, so without
+    // this a boundary that failed once would keep showing the procedural build
+    // even after it has been handed a different item or a corrected URL.
+    if (this.state.failed && (prev.itemId !== this.props.itemId || prev.url !== this.props.url)) {
+      this.setState({ failed: false });
+    }
+  }
+
+  componentDidCatch(error, info) {
+    // Rendering still falls back to the procedural build below — this is
+    // purely so the failure isn't invisible while we're diagnosing crashes.
+    console.error('[3D] placed item model failed, falling back to procedural', {
+      itemId: this.props.itemId,
+      catalogId: this.props.catalogId,
+      kind: this.props.kind,
+      remote: this.props.remote,
+      url: this.props.url,
+      error: error?.message || String(error),
+      stack: error?.stack,
+      componentStack: info?.componentStack,
+    });
   }
 
   render() {
@@ -1327,7 +1357,14 @@ function PlacedItemImpl({ item, cx, cz, wallColor, floorColor, plan }) {
   return (
     <group position={[item.x - cx, elevY, item.y - cz]} rotation={[0, rot, 0]}>
       {entry ? (
-        <ModelBoundary fallback={procedural}>
+        <ModelBoundary
+          fallback={procedural}
+          itemId={item.id}
+          catalogId={item.catalogId}
+          kind={item.kind}
+          remote={entry.remote}
+          url={entry.remote ? entry.url : entry.src}
+        >
           <Suspense fallback={procedural}>
             <ModelItem entry={entry} w={w} d={d} h={h} color={item.color} />
           </Suspense>

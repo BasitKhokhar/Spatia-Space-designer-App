@@ -314,9 +314,21 @@ export function hasModel(kind, catalogId) {
 // `remote: true` so it knows to fetch via src/three/remoteModels.js instead
 // of require()'d bundle assets.
 
+// Entries are cached by id so the same catalog item always yields the SAME
+// object. ModelItem keys its fitting/cloning useMemo on the entry, so returning
+// a fresh literal here would re-clone the whole model scene graph on every
+// render and hand <primitive> a new object each time, forcing r3f to tear the
+// subtree down and rebuild it. Bundled entries are module-level constants and
+// already have this property.
+const REMOTE_ENTRIES = new Map(); // catalog id -> frozen entry
+
 function remoteModel(item) {
   if (!item?.modelUrl) return null;
-  return {
+
+  const hit = REMOTE_ENTRIES.get(item.id);
+  if (hit && hit.url === item.modelUrl) return hit;
+
+  const entry = Object.freeze({
     name: item.id,
     remote: true,
     url: item.modelUrl,
@@ -324,7 +336,9 @@ function remoteModel(item) {
     scale: 1,
     fit: 'contain',
     yOffset: 0,
-  };
+  });
+  REMOTE_ENTRIES.set(item.id, entry);
+  return entry;
 }
 
 /**
