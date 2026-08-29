@@ -42,4 +42,5 @@ export const ROUTES = {
   settings: 'Settings',
   help: 'HelpSupport',
   deleteAccount: 'DeleteAccount',
+  offlineResources: 'OfflineResources',
 };

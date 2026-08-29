@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { View, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -6,18 +6,19 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Text from '@/components/ui/Text';
 import CreditPill from '@/components/ui/CreditPill';
 import SectionHeader from '@/components/ui/SectionHeader';
-import HeroCarousel from '@/components/home/HeroCarousel';
+import AiHeroBanner from '@/components/home/AiHeroBanner';
 import QuickStartRow from '@/components/home/QuickStartRow';
 import RecentProjectsRail from '@/components/home/RecentProjectsRail';
 import UpgradeBanner from '@/components/home/UpgradeBanner';
 import EmptyState from '@/components/feedback/EmptyState';
+import { CoverArt } from '@/components/graphics/CoverImage';
 import ConfirmDeleteModal from '@/components/feedback/ConfirmDeleteModal';
-import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useCreditsStore } from '@/store/useCreditsStore';
 import { useProjectsStore } from '@/store/useProjectsStore';
 import { useAiBriefStore } from '@/store/useAiBriefStore';
+import { useBannersStore } from '@/store/useBannersStore';
 import { accent } from '@/theme/colors';
 import { ROUTES } from '@/navigation/routes';
 
@@ -61,9 +62,17 @@ export default function HomeScreen({ navigation }) {
   const setActive = useProjectsStore((s) => s.setActive);
   const deleteProject = useProjectsStore((s) => s.deleteProject);
   const createProject = useProjectsStore((s) => s.createProject);
-  // A generation the user left running — the spotlight card takes them back to
-  // it rather than offering to start a second one.
+  // A generation the user left running — the hero card takes them back to it
+  // rather than offering to start a second one.
   const aiJobId = useAiBriefStore((s) => s.jobId);
+  // Admin-managed hero photography. Cached to MMKV, so the card has a backdrop
+  // on a cold start and stays intact offline.
+  const banners = useBannersStore((s) => s.banners);
+  const hydrateBanners = useBannersStore((s) => s.hydrate);
+
+  useEffect(() => {
+    hydrateBanners();
+  }, [hydrateBanners]);
 
   // Project pending deletion (drives the confirmation modal). Null when closed.
   const [pendingDelete, setPendingDelete] = useState(null);
@@ -128,12 +137,14 @@ export default function HomeScreen({ navigation }) {
           <CreditPill count={balance} onPress={() => navigation.navigate(ROUTES.earnCredits)} />
         </View>
 
-        {/* AI first, above New Project: it's the feature most people won't
-            discover on their own, and the fastest route to a finished plan. */}
-        <HeroCarousel
-          onAiPress={startAi}
-          aiInProgress={!!aiJobId}
-          onCreatePress={startNew}
+        {/* The top section: fixed AI pitch + CTA, admin-managed photography
+            auto-scrolling behind it. AI leads the screen because it's the
+            feature most people won't discover on their own, and the fastest
+            route from nothing to a finished plan. */}
+        <AiHeroBanner
+          images={banners}
+          onPress={startAi}
+          inProgress={!!aiJobId}
           style={{ marginTop: 22 }}
         />
 
@@ -148,7 +159,7 @@ export default function HomeScreen({ navigation }) {
             actionTitle="Create Your First Project"
             actionIcon="arrow-right"
             onAction={startNew}
-            illustration={<Icon name="home" size={90} color={colors.line} strokeWidth={1.4} />}
+            illustration={<CoverArt />}
             style={{ marginTop: 20 }}
           />
         ) : (

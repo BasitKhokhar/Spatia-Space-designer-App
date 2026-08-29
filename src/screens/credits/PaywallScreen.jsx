@@ -8,26 +8,42 @@ import { useCreditsStore } from '@/store/useCreditsStore';
 import { showRewardedAd } from '@/services/ads/admob';
 import { isRemote } from '@/services/api/client';
 import { billingApi } from '@/services/api/billingApi';
-import { REVENUECAT_ANDROID_API_KEY } from '@/constants/config';
-import { getOfferingPackages, purchasePackage, restorePurchases } from '@/services/billing/revenueCat';
+import { usePlayBilling } from '@/hooks/usePlayBilling';
+import { displayPriceForPlan, isLifetimePlan } from '@/services/billing/playBilling';
 
-// The three plans the app ships with. Server values (price/features) override
-// these by `code` when a backend is attached; this is the offline fallback and
-// the canonical ordering/marketing copy.
-const PLAN_DEFS = [
+// Offline/first-paint fallback only. When a backend is attached the ladder is
+// whatever /billing/plans returns, so pricing and copy can change from the
+// admin dashboard without shipping an app update.
+const FALLBACK_PLANS = [
   {
-    code: 'FREE', tier: 'free', name: 'Free', price: 0, period: '',
+    code: 'FREE', name: 'Free', price: 0, currency: 'USD',
     features: ['Basic items free', 'Unlock premium items with credits', 'Earn credits by watching ads'],
   },
   {
-    code: 'BASIC', tier: 'basic', name: 'Basic', price: 4.99, period: '/mo', highlight: true,
+    code: 'BASIC', name: 'Basic', price: 4.99, currency: 'USD', unlocksAllPremium: true, adsDisabled: true,
     features: ['Everything in Free', 'All premium items unlocked', 'No ads', '100 download credits'],
   },
   {
-    code: 'PREMIUM', tier: 'premium', name: 'Premium', price: 9.99, period: '/mo',
+    code: 'PREMIUM', name: 'Premium', price: 9.99, currency: 'USD', isUnlimited: true, unlocksAllPremium: true, adsDisabled: true,
     features: ['Everything in Basic', 'Unlimited downloads', 'Unlimited editing', 'Priority support'],
   },
 ];
+
+// Mirrors the backend's tier derivation (routes/billingRoutes.js#my-status) so
+// the "Current plan" badge lands on the right card.
+function tierForPlan(plan) {
+  if (plan.isUnlimited) return 'premium';
+  if (plan.unlocksAllPremium) return 'basic';
+  return 'free';
+}
+
+function periodLabel(plan) {
+  if (isLifetimePlan(plan)) return '';
+  if (!plan.durationDays) return '';
+  if (plan.durationDays >= 360) return '/yr';
+  if (plan.durationDays >= 175) return '/6mo';
+  return '/mo';
+}
 
 export default function PaywallScreen({ navigation, route }) {
   const { colors, radius, shadows } = useTheme();
@@ -37,71 +53,87 @@ export default function PaywallScreen({ navigation, route }) {
   const earnFromAd = useCreditsStore((s) => s.earnFromAd);
   const canWatchAd = useCreditsStore((s) => s.canWatchAd);
   const refreshCredits = useCreditsStore((s) => s.refresh);
-  const [busy, setBusy] = useState(false);
-  const [serverPlans, setServerPlans] = useState(null);
-  const [rcPackages, setRcPackages] = useState([]);
 
-  // Pull live plan pricing/features when a backend is attached.
+  const [adBusy, setAdBusy] = useState(false);
+  const [serverPlans, setServerPlans] = useState(null);
+  const [loadingPlans, setLoadingPlans] = useState(isRemote());
+
+  // Live plans from the backend — the source of truth for what's on sale.
   useEffect(() => {
-    if (!isRemote()) return;
+    if (!isRemote()) return undefined;
     let alive = true;
     billingApi.plans()
-      .then((res) => { if (alive) setServerPlans(Array.isArray(res) ? res : res?.plans || res?.data || null); })
-      .catch(() => {});
+      .then((res) => {
+        if (!alive) return;
+        const list = Array.isArray(res) ? res : res?.plans || res?.data || null;
+        setServerPlans(list);
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoadingPlans(false); });
     return () => { alive = false; };
   }, []);
 
-  // Pull live RevenueCat offerings (empty until the RC dashboard is linked to
-  // Play Console — see the "unavailable" fallback in subscribe() below).
-  useEffect(() => {
-    let alive = true;
-    getOfferingPackages().then((pkgs) => { if (alive) setRcPackages(pkgs); }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
+  const basePlans = useMemo(() => {
+    const list = (serverPlans && serverPlans.length ? serverPlans : FALLBACK_PLANS)
+      .filter((p) => p.isActive !== false)
+      .slice()
+      .sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
+    return list;
+  }, [serverPlans]);
 
-  // Merge server plan data (description/features) and RevenueCat's live store
-  // price into the fixed Free/Basic/Premium ladder by code/tier.
-  const plans = useMemo(() => {
-    const byCode = serverPlans ? Object.fromEntries(serverPlans.map((p) => [p.code, p])) : {};
-    const byTier = Object.fromEntries(rcPackages.map((p) => [p.identifier, p]));
-    return PLAN_DEFS.map((def) => {
-      const s = byCode[def.code];
-      const rcPackage = byTier[def.tier];
-      return {
-        ...def,
-        price: s && typeof s.price === 'number' ? s.price : def.price,
-        features: s && Array.isArray(s.features) && s.features.length ? s.features : def.features,
-        name: (s && s.name) || def.name,
-        rcPackage,
-        priceString: rcPackage?.product?.priceString,
-      };
-    });
-  }, [serverPlans, rcPackages]);
+  const { storeSubs, storeProducts, busy: billingBusy, purchase, restore } = usePlayBilling({
+    plans: basePlans,
+    // The backend has already written the entitlement by the time this runs;
+    // refresh() pulls it back so the UI reflects the server, never a local guess.
+    onEntitlementChange: refreshCredits,
+    onError: (message) => Alert.alert('Purchase', message),
+    onSuccess: () => navigation.goBack(),
+  });
+
+  // Overlay Google's own formatted price (correct currency for the user's
+  // region) on top of the plan's stored USD figure.
+  const plans = useMemo(
+    () => basePlans.map((plan) => ({
+      ...plan,
+      tier: tierForPlan(plan),
+      displayPrice: displayPriceForPlan(plan, { storeSubs, storeProducts }),
+      period: periodLabel(plan),
+      featureList: Array.isArray(plan.features) && plan.features.length
+        ? plan.features
+        : (FALLBACK_PLANS.find((f) => f.code === plan.code)?.features || []),
+    })),
+    [basePlans, storeSubs, storeProducts]
+  );
+
+  const busy = adBusy || billingBusy;
 
   const watch = async () => {
     if (!canWatchAd()) return;
-    setBusy(true);
+    setAdBusy(true);
     const earned = await showRewardedAd();
     if (earned) await earnFromAd();
-    setBusy(false);
+    setAdBusy(false);
   };
 
   const subscribe = async (plan) => {
     if (plan.tier === 'free' || plan.tier === tier) return;
 
-    // No RevenueCat key configured yet (dashboard not linked to Play Console)
-    // — fall back to a __DEV__-only local preview so gating can still be
-    // exercised end-to-end; guide the user otherwise.
-    if (!REVENUECAT_ANDROID_API_KEY) {
-      if (__DEV__) {
+    // No Play product mapped yet (a plan authored in the dashboard before its
+    // Play Console product exists). In dev, allow previewing the gating.
+    if (!plan.playStoreProductId) {
+      if (__DEV__ && !isRemote()) {
         Alert.alert(
           `Preview ${plan.name}?`,
-          'Development preview applies this plan locally so you can test gating. Real purchases go through Google Play.',
+          'Applies this plan locally so you can test gating. Real purchases go through Google Play.',
           [
             { text: 'Cancel', style: 'cancel' },
             {
               text: `Preview ${plan.name}`,
-              onPress: async () => { useCreditsStore.getState().setTier(plan.tier); await refreshCredits(); navigation.goBack(); },
+              onPress: async () => {
+                useCreditsStore.getState().setTier(plan.tier);
+                await refreshCredits();
+                navigation.goBack();
+              },
             },
           ]
         );
@@ -111,35 +143,17 @@ export default function PaywallScreen({ navigation, route }) {
       return;
     }
 
-    if (!plan.rcPackage) {
-      Alert.alert('Unavailable', 'This plan is not available for purchase right now.');
-      return;
-    }
-
-    setBusy(true);
-    try {
-      await purchasePackage(plan.rcPackage);
-      await billingApi.revenueCatSync();
-      await refreshCredits();
-      navigation.goBack();
-    } catch (err) {
-      if (!err?.userCancelled) Alert.alert('Purchase failed', err?.message || 'Please try again.');
-    } finally {
-      setBusy(false);
-    }
+    await purchase(plan);
   };
 
-  const restore = async () => {
-    setBusy(true);
-    try {
-      await restorePurchases();
-      await billingApi.revenueCatSync();
-      await refreshCredits();
-    } catch (err) {
-      Alert.alert('Restore failed', err?.message || 'Please try again.');
-    } finally {
-      setBusy(false);
-    }
+  const onRestore = async () => {
+    const count = await restore();
+    Alert.alert(
+      'Restore purchases',
+      count > 0
+        ? `Restored ${count} purchase${count === 1 ? '' : 's'}.`
+        : 'No previous purchases were found for this Google account.'
+    );
   };
 
   return (
@@ -168,98 +182,105 @@ export default function PaywallScreen({ navigation, route }) {
             : 'Unlock the full library and remove ads.'}
         </Text>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 16, gap: 12 }}>
-          {plans.map((plan) => {
-            const current = plan.tier === tier;
-            const highlight = plan.highlight;
-            return (
-              <View
-                key={plan.code}
-                style={{
-                  borderWidth: highlight ? 1.5 : 1,
-                  borderColor: highlight ? colors.accent : colors.lineSoft,
-                  backgroundColor: highlight ? colors.accentTintBg : colors.surface,
-                  borderRadius: radius.lg,
-                  padding: 16,
-                }}
-              >
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text variant="title">{plan.name}</Text>
-                    {highlight ? (
-                      <View style={{ backgroundColor: colors.accent, borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3 }}>
-                        <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'Manrope_800ExtraBold', letterSpacing: 0.5 }}>POPULAR</Text>
-                      </View>
-                    ) : null}
-                  </View>
-                  <Text variant="title">
-                    {plan.priceString || (plan.price ? `$${plan.price}` : 'Free')}
-                    <Text variant="caption" color="ink3">{plan.period}</Text>
-                  </Text>
-                </View>
-
-                <View style={{ marginTop: 12, gap: 7 }}>
-                  {plan.features.map((f) => (
-                    <View key={f} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Icon name="check" size={15} color={colors.success} strokeWidth={2.4} />
-                      <Text variant="bodySm" color="ink2">{f}</Text>
-                    </View>
-                  ))}
-                </View>
-
-                <Pressable
-                  onPress={() => subscribe(plan)}
-                  disabled={current || plan.tier === 'free'}
+        {loadingPlans ? (
+          <ActivityIndicator color={colors.accent} style={{ marginVertical: 32 }} />
+        ) : (
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 16, gap: 12 }}>
+            {plans.map((plan) => {
+              const current = plan.tier === tier;
+              const highlight = plan.code === 'BASIC';
+              return (
+                <View
+                  key={plan.code}
                   style={{
-                    marginTop: 14,
-                    height: 46,
-                    borderRadius: radius.md,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: current ? colors.surface2 : plan.tier === 'free' ? colors.surface2 : colors.accent,
+                    borderWidth: highlight ? 1.5 : 1,
+                    borderColor: highlight ? colors.accent : colors.lineSoft,
+                    backgroundColor: highlight ? colors.accentTintBg : colors.surface,
+                    borderRadius: radius.lg,
+                    padding: 16,
                   }}
                 >
-                  <Text style={{ fontFamily: 'Manrope_700Bold', fontSize: 14.5, color: current || plan.tier === 'free' ? colors.ink3 : '#fff' }}>
-                    {current ? 'Current plan' : plan.tier === 'free' ? 'Included' : `Get ${plan.name}`}
-                  </Text>
-                </Pressable>
-              </View>
-            );
-          })}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text variant="title">{plan.name}</Text>
+                      {highlight ? (
+                        <View style={{ backgroundColor: colors.accent, borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3 }}>
+                          <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'Manrope_800ExtraBold', letterSpacing: 0.5 }}>POPULAR</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <Text variant="title">
+                      {plan.displayPrice || (plan.price ? `$${plan.price}` : 'Free')}
+                      <Text variant="caption" color="ink3">{plan.period}</Text>
+                    </Text>
+                  </View>
 
-          {/* Keep earning free credits (retains the original watch-ad path). */}
-          {tier === 'free' ? (
-            <Pressable
-              onPress={watch}
-              disabled={busy || !canWatchAd()}
-              style={{
-                borderWidth: 1, borderColor: colors.lineSoft, borderRadius: radius.md, padding: 14,
-                flexDirection: 'row', alignItems: 'center', gap: 12, opacity: canWatchAd() ? 1 : 0.5,
-              }}
-            >
-              <View style={{ width: 38, height: 38, borderRadius: 11, backgroundColor: colors.dangerSoftLight, alignItems: 'center', justifyContent: 'center' }}>
-                <Icon name="play" size={17} color={colors.danger} strokeWidth={2.2} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text variant="bodySm" style={{ fontFamily: 'Manrope_700Bold' }}>Watch an ad</Text>
-                <Text variant="bodySm" color="ink3">+1 credit · you have {balance}</Text>
-              </View>
-              {busy ? <ActivityIndicator color={colors.accent} /> : <Text variant="bodySm" color="accent" style={{ fontFamily: 'Manrope_700Bold' }}>Watch</Text>}
-            </Pressable>
-          ) : null}
-        </ScrollView>
+                  {plan.description ? (
+                    <Text variant="bodySm" color="ink3" style={{ marginTop: 4 }}>{plan.description}</Text>
+                  ) : null}
 
-        {REVENUECAT_ANDROID_API_KEY ? (
-          <Text
-            variant="bodySm"
-            color="accent"
-            align="center"
-            style={{ marginTop: 14, fontFamily: 'Manrope_700Bold' }}
-            onPress={busy ? undefined : restore}
-          >
-            Restore purchases
-          </Text>
-        ) : null}
+                  <View style={{ marginTop: 12, gap: 7 }}>
+                    {plan.featureList.map((f) => (
+                      <View key={f} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Icon name="check" size={15} color={colors.success} strokeWidth={2.4} />
+                        <Text variant="bodySm" color="ink2">{f}</Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  <Pressable
+                    onPress={() => subscribe(plan)}
+                    disabled={current || plan.tier === 'free' || busy}
+                    style={{
+                      marginTop: 14,
+                      height: 46,
+                      borderRadius: radius.md,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      opacity: busy && !current ? 0.6 : 1,
+                      backgroundColor: current || plan.tier === 'free' ? colors.surface2 : colors.accent,
+                    }}
+                  >
+                    <Text style={{ fontFamily: 'Manrope_700Bold', fontSize: 14.5, color: current || plan.tier === 'free' ? colors.ink3 : '#fff' }}>
+                      {current ? 'Current plan' : plan.tier === 'free' ? 'Included' : `Get ${plan.name}`}
+                    </Text>
+                  </Pressable>
+                </View>
+              );
+            })}
+
+            {/* Keep earning free credits (retains the original watch-ad path). */}
+            {tier === 'free' ? (
+              <Pressable
+                onPress={watch}
+                disabled={busy || !canWatchAd()}
+                style={{
+                  borderWidth: 1, borderColor: colors.lineSoft, borderRadius: radius.md, padding: 14,
+                  flexDirection: 'row', alignItems: 'center', gap: 12, opacity: canWatchAd() ? 1 : 0.5,
+                }}
+              >
+                <View style={{ width: 38, height: 38, borderRadius: 11, backgroundColor: colors.dangerSoftLight, alignItems: 'center', justifyContent: 'center' }}>
+                  <Icon name="play" size={17} color={colors.danger} strokeWidth={2.2} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text variant="bodySm" style={{ fontFamily: 'Manrope_700Bold' }}>Watch an ad</Text>
+                  <Text variant="bodySm" color="ink3">+1 credit · you have {balance}</Text>
+                </View>
+                {busy ? <ActivityIndicator color={colors.accent} /> : <Text variant="bodySm" color="accent" style={{ fontFamily: 'Manrope_700Bold' }}>Watch</Text>}
+              </Pressable>
+            ) : null}
+          </ScrollView>
+        )}
+
+        <Text
+          variant="bodySm"
+          color="accent"
+          align="center"
+          style={{ marginTop: 14, fontFamily: 'Manrope_700Bold' }}
+          onPress={busy ? undefined : onRestore}
+        >
+          Restore purchases
+        </Text>
 
         <Text
           variant="bodySm"

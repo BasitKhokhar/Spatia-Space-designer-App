@@ -1,7 +1,9 @@
-import { Image as SkiaImage, useImage, RoundedRect, Line } from '@shopify/react-native-skia';
+import { Image as SkiaImage, RoundedRect, Line } from '@shopify/react-native-skia';
 
 import { planTopFor } from './planTops';
+import { useSkiaImageCached } from './skiaImageCache';
 import { useCatalogStore } from '@/store/useCatalogStore';
+import { useLocalAsset } from '@/hooks/useLocalAsset';
 
 // Darken/lighten a #rrggbb hex by factor f (1 = same, <1 darker, >1 lighter).
 function shade(hex, f) {
@@ -73,18 +75,25 @@ function CarTop({ f, w, d }) {
 // <Group> that already applies the item's translate + rotation, so this only
 // shapes the body in the item's local frame (origin at center, front = up / -Y).
 //
-// Priority: a per-product top-down photo (catalogItem.planTopUrl, rendered by
-// the asset pipeline — see scripts/models/pipeline/3-thumbs.mjs) wins; then a
-// registered generic per-kind top-down PNG (planTops.js); otherwise a
-// hand-drawn top-down vector for known kinds (car); otherwise the original
-// rounded-rect + front-tick fallback. `useImage` returns null while decoding,
-// so a vector/generic layer shows until any image is ready — never a blank gap.
+// Priority: a per-product top-down photo (downloaded from the bucket and read
+// from disk, so it works offline) wins; then the bundled generic per-kind PNG
+// (planTops.js); then a hand-drawn vector for known kinds (car); then the
+// rounded-rect + front-tick fallback.
+//
+// Both image layers are resolved UNCONDITIONALLY. The previous version picked a
+// single `src` up front — so an item whose planTopUrl was set but unreachable
+// never consulted the bundled PNG and fell all the way to a grey rectangle,
+// making a broken URL render WORSE than no URL at all. Resolving both means a
+// failed download degrades to the built-in artwork the way it should.
 export default function FurnitureShape({ f, w, d }) {
   const catalogItem = useCatalogStore((s) => s.byId(f.catalogId));
-  const src = catalogItem?.planTopUrl || planTopFor(f.kind);
-  const image = useImage(src || null);
+  // Downloads on demand at bulk priority if absent; returns null meanwhile.
+  const { uri: planTopUri } = useLocalAsset(catalogItem, 'planTop');
+  const productImage = useSkiaImageCached(planTopUri);
+  const bundledImage = useSkiaImageCached(planTopFor(f.kind));
+  const image = productImage || bundledImage;
 
-  if (src && image) {
+  if (image) {
     return (
       <SkiaImage image={image} x={-w / 2} y={-d / 2} width={w} height={d} fit="contain" />
     );

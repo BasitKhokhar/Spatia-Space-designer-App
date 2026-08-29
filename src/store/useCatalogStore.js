@@ -29,6 +29,36 @@ function normalize(payload) {
   return { items, categories };
 }
 
+// byId() is called from inside React selectors, once per placed item, on every
+// render. A linear .find() over ~180 items made that O(n·m) per frame. The index
+// is rebuilt only when the items array identity changes.
+let _index = null;
+let _indexedArray = null;
+function indexOf(items) {
+  if (_indexedArray !== items) {
+    _index = new Map(items.map((it) => [it.id, it]));
+    _indexedArray = items;
+  }
+  return _index;
+}
+
+// Apply a delta response onto the cached catalog: changed rows replace their
+// previous version, `deleted` slugs are dropped. Order is preserved for rows
+// that did not change, so the catalog UI does not reshuffle on every sync.
+function mergeDelta(current, changed, deletedSlugs) {
+  const dropped = new Set(deletedSlugs || []);
+  const changedById = new Map((changed || []).map((it) => [it.id, it]));
+  const merged = [];
+  for (const item of current) {
+    if (dropped.has(item.id)) continue;
+    merged.push(changedById.get(item.id) || item);
+    changedById.delete(item.id);
+  }
+  // Anything left is genuinely new — append so it surfaces without reordering.
+  for (const item of changedById.values()) merged.push(item);
+  return merged;
+}
+
 // Dynamic catalog. Online it mirrors the admin-managed backend catalog (fetched
 // via GET /catalog) and is cached to MMKV so the app keeps working offline; the
 // bundled src/data/catalog.js is the first-run / offline seed. `kind` is the
@@ -38,31 +68,85 @@ export const useCatalogStore = create(
     (set, get) => ({
       items: CATALOG,
       categories: BUNDLED_CATEGORIES,
-      lastSyncedAt: null,
+      lastSyncedAt: null,   // local wall clock, informational
+      syncedAt: null,       // SERVER cursor for the next ?since= delta request
+      _inflight: null,      // dedupes concurrent hydrate() calls (not persisted)
 
       // Pull the live catalog + this user's unlocks (no-op offline / local-first).
       // Cheap and idempotent — safe to call on every sign-in.
       hydrate: async () => {
-        if (!isRemote()) return;
-        try {
-          const payload = await fetchCatalog();
-          const { items, categories } = normalize(payload);
-          if (items.length) set({ items, categories, lastSyncedAt: Date.now() });
-        } catch (err) {
-          // keep the cached (or bundled) catalog on network error
-          console.warn('[catalog] hydrate failed, keeping cached catalog', err?.message || err);
-        }
-        // Merge the server's permanent unlock records into the local store so
-        // previously-unlocked items stay unlocked across devices/reinstalls.
-        useUnlocksStore.getState().hydrate();
+        if (!isRemote()) return undefined;
+        // RootNavigator hydrates on cold start AND again after sign-in. Without
+        // this memo those two fire concurrent, identical GET /catalog requests.
+        const running = get()._inflight;
+        if (running) return running;
+
+        const run = (async () => {
+          try {
+            // syncedAt is the SERVER's clock, so a device with a skewed clock
+            // cannot silently skip rows. Falls back to a full fetch when we've
+            // never synced (or the cursor was lost).
+            const cursor = get().syncedAt;
+            const payload = await fetchCatalog(cursor || undefined);
+            const isDelta = !!cursor && Array.isArray(payload?.deleted);
+
+            if (isDelta) {
+              const changed = Array.isArray(payload.items) ? payload.items : [];
+              const deleted = payload.deleted || [];
+              if (changed.length || deleted.length) {
+                const { categories } = normalize(payload);
+                set({
+                  items: mergeDelta(get().items, changed, deleted),
+                  categories,
+                  lastSyncedAt: Date.now(),
+                  syncedAt: payload.syncedAt || cursor,
+                });
+              } else {
+                // Nothing changed — still advance the cursor so the next sync
+                // window starts here rather than replaying the same rows.
+                set({ lastSyncedAt: Date.now(), syncedAt: payload.syncedAt || cursor });
+              }
+            } else {
+              const { items, categories } = normalize(payload);
+              // Guard against an empty/failed body blanking a good cache.
+              if (items.length) {
+                set({ items, categories, lastSyncedAt: Date.now(), syncedAt: payload?.syncedAt || null });
+              }
+            }
+          } catch (err) {
+            // keep the cached (or bundled) catalog on network error
+            console.warn('[catalog] hydrate failed, keeping cached catalog', err?.message || err);
+          } finally {
+            set({ _inflight: null });
+          }
+          // Merge the server's permanent unlock records into the local store so
+          // previously-unlocked items stay unlocked across devices/reinstalls.
+          useUnlocksStore.getState().hydrate();
+        })();
+
+        set({ _inflight: run });
+        return run;
       },
 
-      byId: (id) => get().items.find((it) => it.id === id),
+      byId: (id) => indexOf(get().items).get(id),
     }),
     {
       name: 'catalog',
       storage: createJSONStorage(() => zustandMMKVStorage),
-      partialize: (s) => ({ items: s.items, categories: s.categories, lastSyncedAt: s.lastSyncedAt }),
+      partialize: (s) => ({
+        items: s.items,
+        categories: s.categories,
+        lastSyncedAt: s.lastSyncedAt,
+        syncedAt: s.syncedAt,
+      }),
+      // The item shape gained updatedAt/*Bytes/*Sha, which the asset manager
+      // needs to key its cache. A pre-v1 cache has none of them, so drop the
+      // cursor to force one full re-fetch rather than delta-ing onto stale rows.
+      version: 1,
+      migrate: (persisted, from) => {
+        if (from < 1) return { ...persisted, syncedAt: null };
+        return persisted;
+      },
     }
   )
 );

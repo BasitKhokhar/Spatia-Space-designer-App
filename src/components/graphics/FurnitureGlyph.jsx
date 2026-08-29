@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { Image } from 'react-native';
 import Svg, { Rect, Ellipse, Circle, Line, Path } from 'react-native-svg';
 
 import { thumbFor } from './itemThumbs';
 import { useTheme } from '@/theme/useTheme';
+import { localUriFor } from '@/services/assets/assetManager';
 
 // 2D item art for catalog/browse tiles. If the item has a registered PNG
 // thumbnail (itemThumbs.js) we show that real image; otherwise we fall back to
@@ -14,21 +16,37 @@ import { useTheme } from '@/theme/useTheme';
 // (a Chesterfield rather than a generic sofa). Without it the tile falls back to
 // the kind's default model, which is still correct, just less specific.
 //
-// `thumbUrl` is a server-published catalog item's pre-rendered PNG (from
-// scripts/models/pipeline/) — it wins over the bundled Kenney thumbFor() PNG,
-// which wins over the vector glyph. RN's <Image> caches remote URIs natively,
-// so no extra caching code is needed for browse tiles (unlike the 3D model
-// itself, which does need on-device caching — see src/three/remoteModels.js).
+// Art priority: the DOWNLOADED thumbnail (assetManager, on disk — works
+// offline) → the server `thumbUrl` → the bundled Kenney thumbFor() PNG → the
+// vector glyph. Any image layer that fails to load falls through to the next,
+// so a broken URL degrades gracefully instead of leaving a blank tile.
+//
+// Note the disk cache is what makes browse tiles work offline. RN's <Image>
+// does cache remote URIs, but that is the OS HTTP cache: size-limited, header
+// dependent, and evicted at the OS's discretion — fine as an optimisation,
+// useless as an offline guarantee.
 export default function FurnitureGlyph({ kind = 'sofa', catalogId, size = 80, color, thumbUrl }) {
   const { colors, isDark } = useTheme();
+  const [remoteFailed, setRemoteFailed] = useState(false);
 
-  if (thumbUrl) {
+  // Prefer the downloaded copy: it renders offline, whereas a remote URL
+  // depends on the OS image cache, which is size-limited and freely evicted.
+  const cached = catalogId ? localUriFor(catalogId, 'thumb') : null;
+  const uri = cached || thumbUrl;
+
+  // `remoteFailed` is what makes this a real fallback chain. Previously a
+  // present-but-broken thumbUrl returned an <Image> unconditionally and never
+  // reached thumbFor() below, so the tile rendered as a blank box forever.
+  if (uri && !remoteFailed) {
     return (
       <Image
-        source={{ uri: thumbUrl }}
+        source={{ uri }}
         style={{ width: size, height: size }}
         resizeMode="contain"
-        onError={(e) => console.warn('[thumb] remote thumbnail failed to load', { thumbUrl, error: e?.nativeEvent?.error })}
+        onError={(e) => {
+          console.warn('[thumb] thumbnail failed to load', { uri, error: e?.nativeEvent?.error });
+          setRemoteFailed(true);
+        }}
       />
     );
   }

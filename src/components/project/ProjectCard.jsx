@@ -3,19 +3,22 @@ import { View, Pressable } from 'react-native';
 import Card from '@/components/ui/Card';
 import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
-import PlanThumbnail from '@/components/graphics/PlanThumbnail';
+import CoverImage, { coverUriOf } from '@/components/graphics/CoverImage';
 import { roomTypeById } from '@/data/roomTypes';
 import { timeAgo, pluralize, formatArea } from '@/utils/format';
 
-// Grid card for a saved project. Pass `onDelete` to show a delete affordance
-// (a circular trash button on the thumbnail); it fires without opening the card.
+// Grid card for a saved project. The cover is the project's own image when it
+// has one, else the bundled house render — a blank project reads as a real
+// design rather than an empty sketch. Pass `onDelete` to show a delete
+// affordance (a circular trash button on the cover); it fires without opening
+// the card.
 export default function ProjectCard({ project, onPress, onDelete, style }) {
   const area = formatArea(project.plan?.width, project.plan?.length);
 
   return (
     <Card onPress={onPress} padded={false} style={[{ overflow: 'hidden' }, style]}>
       <View>
-        <PlanThumbnail variant={project.variant} height={96} />
+        <CoverImage uri={coverUriOf(project)} height={96} accessibilityLabel={project.name} />
         <View
           style={{
             position: 'absolute',

@@ -1,4 +1,6 @@
+import { useEffect, useMemo, useState } from 'react';
 import { Linking, View, ScrollView, Alert } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 
 import Screen from '@/components/ui/Screen';
 import Text from '@/components/ui/Text';
@@ -7,7 +9,11 @@ import ListRow, { RowDivider } from '@/components/ui/ListRow';
 import SegmentedControl from '@/components/ui/SegmentedControl';
 import { useTheme } from '@/theme/useTheme';
 import { useSettingsStore } from '@/store/useSettingsStore';
+import { useCatalogStore } from '@/store/useCatalogStore';
+import * as assetManager from '@/services/assets/assetManager';
 import { useAuthStore } from '@/store/useAuthStore';
+import { isRemote } from '@/services/api/client';
+import { billingApi } from '@/services/api/billingApi';
 import { APP_VERSION, BUILD_NUMBER } from '@/constants/config';
 import { LINKS } from '@/constants/links';
 import { ROUTES } from '@/navigation/routes';
@@ -46,6 +52,38 @@ export default function SettingsScreen({ navigation, route }) {
   const language = useSettingsStore((s) => s.language);
   const logout = useAuthStore((s) => s.logout);
 
+  // Live "downloaded / total" summary on the row, so the state of the offline
+  // library is visible without opening the screen.
+  const catalogItems = useCatalogStore((s) => s.items);
+  const [assetState, setAssetState] = useState(() => assetManager.getState());
+  useEffect(() => assetManager.subscribe(setAssetState), []);
+  const offlineValue = useMemo(() => {
+    const usage = assetManager.usageStats(catalogItems);
+    if (!usage.requiredBytes) return 'Built-in only';
+    const mb = (n) => `${(n / 1048576).toFixed(n > 10485760 ? 0 : 1)} MB`;
+    if (assetState.status === 'running') return `${Math.round(usage.pct * 100)}% · downloading`;
+    return `${mb(usage.usedBytes)} / ${mb(usage.requiredBytes)}`;
+  }, [catalogItems, assetState.status, assetState.usedBytes]);
+
+  // The licence key belongs to the active subscription (a Play purchase or an
+  // admin grant), so it comes from the server rather than any local store.
+  // Free users have none and the row stays hidden.
+  const [subscription, setSubscription] = useState(null);
+  useEffect(() => {
+    if (!isRemote()) return undefined;
+    let alive = true;
+    billingApi.myStatus()
+      .then((s) => { if (alive) setSubscription(s); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  const copyLicenseKey = async () => {
+    if (!subscription?.licenseKey) return;
+    await Clipboard.setStringAsync(subscription.licenseKey);
+    Alert.alert('Copied', 'Your licence key is on the clipboard.');
+  };
+
   const confirmLogout = () =>
     Alert.alert('Log out', 'Are you sure you want to log out?', [
       { text: 'Cancel', style: 'cancel' },
@@ -72,6 +110,18 @@ export default function SettingsScreen({ navigation, route }) {
           <RowDivider />
           <ListRow icon="cart" label="Credits & Plans" onPress={() => navigation.navigate(ROUTES.earnCredits)} />
           <RowDivider />
+          {subscription?.licenseKey ? (
+            <>
+              <ListRow
+                icon="check"
+                label="Your licence"
+                value={subscription.licenseKey}
+                showChevron={false}
+                onPress={copyLicenseKey}
+              />
+              <RowDivider />
+            </>
+          ) : null}
           <ListRow icon="bell" label="Notification Preferences" onPress={() => {}} />
         </Group>
 
@@ -110,6 +160,15 @@ export default function SettingsScreen({ navigation, route }) {
           </View>
           <RowDivider />
           <ListRow icon="globe" label="Language" value={language} onPress={() => {}} />
+        </Group>
+
+        <Group title="STORAGE">
+          <ListRow
+            icon="download"
+            label="Offline resources"
+            value={offlineValue}
+            onPress={() => navigation.navigate(ROUTES.offlineResources)}
+          />
         </Group>
 
         <Group title="SUPPORT & LEGAL">

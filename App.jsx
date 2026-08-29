@@ -10,7 +10,6 @@ import { useAppFonts } from '@/theme/useAppFonts';
 import RootNavigator from '@/navigation/RootNavigator';
 import AppErrorBoundary from '@/components/AppErrorBoundary';
 import { initMonetization } from '@/services/ads/admob';
-import { initPurchases } from '@/services/billing/revenueCat';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -31,8 +30,9 @@ export default function App() {
 
   useEffect(() => {
     // Fire-and-forget: consent + ads SDK init. Never blocks the UI.
+    // Google Play Billing needs no app-level init — expo-iap's useIAP hook
+    // opens and closes the store connection with the paywall screen.
     initMonetization().catch(() => {});
-    initPurchases().catch(() => {});
   }, []);
 
   const onLayoutRootView = useCallback(async () => {

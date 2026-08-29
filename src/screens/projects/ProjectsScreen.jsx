@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Text from '@/components/ui/Text';
 import ProjectCard from '@/components/project/ProjectCard';
 import EmptyState from '@/components/feedback/EmptyState';
+import { CoverArt } from '@/components/graphics/CoverImage';
 import ConfirmDeleteModal from '@/components/feedback/ConfirmDeleteModal';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
@@ -89,7 +90,7 @@ export default function ProjectsScreen({ navigation }) {
           actionTitle="New Project"
           actionIcon="arrow-right"
           onAction={startNew}
-          illustration={<Icon name="grid" size={80} color={colors.line} strokeWidth={1.4} />}
+          illustration={<CoverArt />}
           style={{ marginTop: 40 }}
         />
       ) : (

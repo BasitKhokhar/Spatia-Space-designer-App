@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -14,9 +14,18 @@ import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useAppBootstrap } from '@/hooks/useAppBootstrap';
 import { linking } from './linking';
 import { ROUTES } from './routes';
+import {
+  bootstrapAssets,
+  recomputePins,
+  acceptFirstRunDownload,
+  deferFirstRunDownload,
+  chooseOnDemandOnly,
+  plannedBytes,
+} from '@/services/assets/bootstrap';
+import OfflineResourcesSheet from '@/components/sheets/OfflineResourcesSheet';
 import { navigationRef } from './navigationRef';
 import UnlockItemSheet from '@/components/sheets/UnlockItemSheet';
-import { loginRevenueCat } from '@/services/billing/revenueCat';
+import { registerForPushNotifications } from '@/services/notifications/push';
 
 // Onboarding
 import SplashScreen from '@/screens/onboarding/SplashScreen';
@@ -45,6 +54,7 @@ import PaywallScreen from '@/screens/credits/PaywallScreen';
 import ProfileScreen from '@/screens/profile/ProfileScreen';
 import SettingsScreen from '@/screens/settings/SettingsScreen';
 import HelpSupportScreen from '@/screens/settings/HelpSupportScreen';
+import OfflineResourcesScreen from '@/screens/settings/OfflineResourcesScreen';
 import DeleteAccountScreen from '@/screens/settings/DeleteAccountScreen';
 // System
 import OfflineScreen from '@/screens/system/OfflineScreen';
@@ -66,6 +76,8 @@ export default function RootNavigator() {
   // Cold-start gate: keeps the branded splash up until stores rehydrate and the
   // minimum brand window elapses. Shown on every launch, before any routing.
   const appReady = useAppBootstrap();
+  const [showAssetPrompt, setShowAssetPrompt] = useState(false);
+  const [assetPromptBytes, setAssetPromptBytes] = useState(0);
 
   // The catalog is a public endpoint (no auth required) — hydrate it on every
   // cold start, not just when signed in, so a device's MMKV-cached catalog
@@ -83,7 +95,16 @@ export default function RootNavigator() {
       hydrateProjects();
       refreshCredits();
       hydrateTemplates();
-      loginRevenueCat(user?.id);
+      registerForPushNotifications();
+      // Catalog first: it carries the asset URLs and sizes the download plan
+      // is built from. hydrate() dedupes against the cold-start call above.
+      hydrateCatalog().then(() => {
+        // 'prompt' = first run: ask once before spending the user's data.
+        if (bootstrapAssets() === 'prompt') {
+          setAssetPromptBytes(plannedBytes());
+          setShowAssetPrompt(true);
+        }
+      });
     }
   }, [isAuthenticated, user, hydrateProjects, refreshCredits, hydrateTemplates]);
 
@@ -94,6 +115,11 @@ export default function RootNavigator() {
     if (isConnected && isAuthenticated) {
       syncUnreconciled();
       flushPendingDeletes();
+      // Connectivity returned — the catalog may have gained items while we were
+      // offline. This effect previously synced projects only, so a device that
+      // cold-started offline kept a stale catalog until the next app launch.
+      hydrateCatalog();
+      recomputePins();
     }
   }, [isConnected, isAuthenticated, syncUnreconciled, flushPendingDeletes]);
 
@@ -160,6 +186,7 @@ export default function RootNavigator() {
               <Stack.Screen name={ROUTES.profile} component={ProfileScreen} />
               <Stack.Screen name={ROUTES.settings} component={SettingsScreen} />
               <Stack.Screen name={ROUTES.help} component={HelpSupportScreen} />
+              <Stack.Screen name={ROUTES.offlineResources} component={OfflineResourcesScreen} />
               <Stack.Screen name={ROUTES.deleteAccount} component={DeleteAccountScreen} />
               <Stack.Screen
                 name={ROUTES.paywall}
@@ -173,6 +200,15 @@ export default function RootNavigator() {
 
       {/* Global premium-unlock sheet (driven by useUnlockPrompt from anywhere). */}
       <UnlockItemSheet />
+
+      {/* Asked once, on first sign-in, before spending the user's data. */}
+      <OfflineResourcesSheet
+        visible={showAssetPrompt}
+        totalBytes={assetPromptBytes}
+        onDownload={() => { setShowAssetPrompt(false); acceptFirstRunDownload(); }}
+        onOnDemand={() => { setShowAssetPrompt(false); chooseOnDemandOnly(); }}
+        onLater={() => { setShowAssetPrompt(false); deferFirstRunDownload(); }}
+      />
 
       {!isConnected ? (
         <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>

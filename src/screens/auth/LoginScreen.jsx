@@ -59,8 +59,13 @@ export default function LoginScreen({ navigation, route }) {
   const onSocial = async (provider) => {
     try {
       const result = provider === 'google' ? await signInWithGoogle() : await signInWithApple();
-      // When a real provider returns an idToken, pass it so the backend can
-      // verify; the stub returns none and the store falls back to a local session.
+      if (!result?.ok) {
+        // Silent on user-initiated cancellation; surface anything else.
+        if (result?.reason && result.reason !== 'cancelled') {
+          Alert.alert('Sign-in failed', result.reason);
+        }
+        return;
+      }
       await socialLogin(provider, result?.idToken);
     } catch (e) {
       Alert.alert('Sign-in failed', e?.message || 'Please try again.');

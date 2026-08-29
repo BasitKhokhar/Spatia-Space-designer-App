@@ -1,9 +1,9 @@
-import { View, Pressable, Image, ActivityIndicator } from 'react-native';
+import { View, Pressable, ActivityIndicator } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
-import TemplateThumbnail from '@/components/graphics/TemplateThumbnail';
+import CoverImage, { coverUriOf } from '@/components/graphics/CoverImage';
 import { useTheme } from '@/theme/useTheme';
 
 // Small pill drawn over the preview (floor count, price, …). Dark glass so it
@@ -28,7 +28,7 @@ function Badge({ children, tone = 'glass' }) {
 }
 
 // One premade design in a browse grid. Shows the design's own preview (the
-// authored image when the backend has one, else a sketch of its real geometry),
+// authored image when the backend has one, else the bundled house render),
 // its size, and what it costs if it's premium. Used by Explore and the category
 // flow so a design looks identical wherever the user meets it.
 export default function DesignCard({
@@ -64,15 +64,7 @@ export default function DesignCard({
         ]}
       >
         <View style={{ height: previewHeight }}>
-          {t.imageUrl ? (
-            <Image
-              source={{ uri: t.imageUrl }}
-              style={{ height: previewHeight, width: '100%' }}
-              resizeMode="cover"
-            />
-          ) : (
-            <TemplateThumbnail template={t} height={previewHeight} />
-          )}
+          <CoverImage uri={coverUriOf(t)} height={previewHeight} accessibilityLabel={t.name} />
 
           {/* Scrim so the size line stays legible over any preview. */}
           <LinearGradient

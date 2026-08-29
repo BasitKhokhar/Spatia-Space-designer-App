@@ -7,7 +7,7 @@ import { isRemote } from '@/services/api/client';
 import { authApi } from '@/services/api/authApi';
 import { setTokens, clearTokens, setSessionExpiredHandler } from '@/services/api/session';
 import { resetUserData } from './resetUserData';
-import { logoutRevenueCat } from '@/services/billing/revenueCat';
+import { unregisterPushNotifications } from '@/services/notifications/push';
 
 // Auth store. When a backend URL is configured (isRemote), auth goes through the
 // real API and tokens are kept in session.js; otherwise it falls back to a
@@ -90,6 +90,7 @@ export const useAuthStore = create(
       },
 
       deleteAccount: async () => {
+        await unregisterPushNotifications();
         if (isRemote()) {
           try {
             await authApi.deleteAccount();
@@ -97,7 +98,6 @@ export const useAuthStore = create(
             // proceed with local cleanup regardless
           }
         }
-        await logoutRevenueCat();
         // Wipe tokens + all user-scoped stores, then drop the session. The
         // navigator swaps back to the Login stack once isAuthenticated flips.
         resetUserData();
@@ -105,6 +105,7 @@ export const useAuthStore = create(
       },
 
       logout: async () => {
+        await unregisterPushNotifications();
         if (isRemote()) {
           try {
             await authApi.logout();
@@ -112,7 +113,6 @@ export const useAuthStore = create(
             // ignore network errors on logout
           }
         }
-        await logoutRevenueCat();
         // Clear tokens + every credential/user store (projects, credits,
         // unlocks). Device prefs + onboardingComplete survive on purpose.
         resetUserData();

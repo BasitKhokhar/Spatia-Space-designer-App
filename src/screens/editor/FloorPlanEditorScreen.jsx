@@ -29,6 +29,7 @@ import { useTheme } from '@/theme/useTheme';
 import { useProjectsStore, useActiveProject } from '@/store/useProjectsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { ensurePlaceable } from '@/domain/unlock';
+import * as assetManager from '@/services/assets/assetManager';
 import { isShopRoom } from '@/data/roomTypes';
 import { shapePolygon } from '@/data/structure';
 import {
@@ -970,6 +971,11 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
   const addItem = async (item, position) => {
     const ok = await ensurePlaceable(item);
     if (!ok) return;
+    // Fetch this item's real artwork at USER priority so it jumps ahead of any
+    // bulk prefetch. Deliberately NOT awaited: placement stays instant, the
+    // bundled fallback renders immediately, and the real art swaps in when it
+    // lands. planTop first — it is small and it is what the user is looking at.
+    assetManager.ensureItemAssets(item, ['planTop', 'model', 'thumb']);
     let newId = null;
     applyCommit((p) => {
       const pos = position || { x: p.width / 2, y: p.length / 2 };

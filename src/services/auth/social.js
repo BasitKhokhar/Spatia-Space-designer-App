@@ -1,13 +1,39 @@
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 
-// Social sign-in stubs. Wire real providers here (expo-auth-session for Google,
-// expo-apple-authentication for Apple) when you attach a backend. For now they
-// resolve immediately so the UI flow is complete.
+const webClientId = Constants.expoConfig?.extra?.googleWebClientId;
+
+let configured = false;
+function ensureConfigured() {
+  if (configured) return;
+  GoogleSignin.configure({ webClientId, offlineAccess: false });
+  configured = true;
+}
+
 export async function signInWithGoogle() {
-  // Example real flow:
-  //   const request = new AuthSession.AuthRequest({ ... });
-  //   const result = await request.promptAsync(discovery);
-  return { provider: 'google', ok: true };
+  try {
+    ensureConfigured();
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    const result = await GoogleSignin.signIn();
+    // v13+ nests the payload under `data`; older versions return it directly.
+    const idToken = result?.data?.idToken || result?.idToken;
+    if (!idToken) {
+      return { provider: 'google', ok: false, reason: 'No ID token returned by Google' };
+    }
+    return { provider: 'google', ok: true, idToken };
+  } catch (err) {
+    if (err.code === statusCodes.SIGN_IN_CANCELLED) {
+      return { provider: 'google', ok: false, reason: 'cancelled' };
+    }
+    if (err.code === statusCodes.IN_PROGRESS) {
+      return { provider: 'google', ok: false, reason: 'A sign-in is already in progress' };
+    }
+    if (err.code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) {
+      return { provider: 'google', ok: false, reason: 'Google Play Services is not available' };
+    }
+    return { provider: 'google', ok: false, reason: err.message || 'Google sign-in failed' };
+  }
 }
 
 export async function signInWithApple() {
