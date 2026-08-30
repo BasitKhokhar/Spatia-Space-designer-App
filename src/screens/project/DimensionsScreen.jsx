@@ -16,6 +16,9 @@ import { areaM2, formatLength, formatArea } from '@/domain/units';
 import { useProjectsStore } from '@/store/useProjectsStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { ROUTES } from '@/navigation/routes';
+import { scheduleInterstitial } from '@/services/ads/interstitial';
+import { PLACEMENT } from '@/services/ads/placements';
+import { useAdFrequency } from '@/store/useAdFrequency';
 
 export default function DimensionsScreen({ navigation, route }) {
   const { colors, radius, isDark } = useTheme();
@@ -33,6 +36,12 @@ export default function DimensionsScreen({ navigation, route }) {
   const onCreate = () => {
     createProject({ name: `${roomType.label}`, roomType: roomType.id, width, length, seed });
     navigation.navigate(ROUTES.editor);
+    // A project was just created and the editor is a freshly mounted, idle
+    // canvas — a natural break, not an interruption. Fire-and-forget: the
+    // navigation above never waits on it, and it self-suppresses if the
+    // frequency caps say no or nothing is cached.
+    useAdFrequency.getState().noteQualifyingAction();
+    scheduleInterstitial(PLACEMENT.projectCreated);
   };
 
   const dotColor = isDark ? '#3A342C' : '#CBB39F';

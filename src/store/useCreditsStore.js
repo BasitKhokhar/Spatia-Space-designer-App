@@ -22,6 +22,10 @@ export const useCreditsStore = create(
       dailyAdCap: CREDITS.dailyAdCap,
       perAd: CREDITS.perAd,
       isUnlimited: false,
+      // Server-granted ad-free flag, independent of the subscription tier (the
+      // backend exposes it as a per-user column so support can grant it). Kept
+      // separate from `tier` so a refresh can't clobber one with the other.
+      serverAdsDisabled: false,
       // Subscription entitlement: 'free' | 'basic' | 'premium'. Authoritative
       // value comes from the backend (/credits or /billing/my-status); defaults
       // to 'free' offline. 'premium' implies unlimited downloads (isUnlimited).
@@ -29,7 +33,7 @@ export const useCreditsStore = create(
 
       // Derived entitlement helpers (read the current tier).
       // Basic & Premium both remove ads and unlock the whole premium catalog.
-      adsDisabled: () => get().tier !== 'free',
+      adsDisabled: () => get().serverAdsDisabled === true || get().tier !== 'free',
       premiumUnlocked: () => get().tier !== 'free',
       // Only Premium (or the legacy isUnlimited flag) grants unlimited downloads;
       // Basic still spends credits per download from its granted balance.
@@ -56,6 +60,7 @@ export const useCreditsStore = create(
             dailyAdCap: s.dailyAdCap,
             perAd: s.perAd,
             isUnlimited: s.isUnlimited,
+            serverAdsDisabled: s.adsDisabled === true,
             tier: s.tier || (s.isUnlimited ? 'premium' : 'free'),
           });
         } catch {
@@ -85,6 +90,7 @@ export const useCreditsStore = create(
               dailyAdCap: s.dailyAdCap,
               perAd: s.perAd,
               isUnlimited: s.isUnlimited,
+              serverAdsDisabled: s.adsDisabled === true,
               tier: s.tier || (s.isUnlimited ? 'premium' : 'free'),
             });
             return true;

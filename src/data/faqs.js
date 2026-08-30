@@ -15,4 +15,14 @@ export const FAQS = [
     q: 'How do I delete my account?',
     a: 'Open Settings → Delete Account. This permanently erases your projects, credits, and export history.',
   },
+  {
+    q: 'How are AI designs created?',
+    a:
+      'When you design with AI, the answers you type are sent to a third-party AI provider (OpenAI or Google) which returns a floor plan. Your text is screened for unsafe content first. AI designs are marked with an AI badge, and you should always review one before building from it.',
+  },
+  {
+    q: 'How do I report an AI design?',
+    a:
+      'Tap “Report this design” on the summary that appears after a design is generated, or open Help & Support → Report AI content to report any AI design at any time. Our team reviews every report.',
+  },
 ];

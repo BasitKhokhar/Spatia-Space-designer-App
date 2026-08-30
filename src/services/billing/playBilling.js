@@ -1,3 +1,5 @@
+import Constants from 'expo-constants';
+
 // ---------------------------------------------------------------------------
 // Pure helpers for reading Google Play's product/offer shapes. No React, no
 // side effects — the stateful side lives in src/hooks/usePlayBilling.js.
@@ -137,4 +139,50 @@ export function displayPriceForPlan(plan, { storeSubs = [], storeProducts = [] }
   if (!storeSub) return null;
   const cycle = getPlanBasePlanId(plan.playStoreProductId) || 'monthly';
   return extractOfferPricing(findOfferInSub(storeSub, cycle), cycle).displayPrice;
+}
+
+// Mirrors the backend's tier derivation (routes/billingRoutes.js#my-status) so
+// a plan's "Current plan" badge lands on the right card wherever plans are
+// listed (paywall, subscription screen).
+export function tierForPlan(plan) {
+  if (plan?.isUnlimited) return 'premium';
+  if (plan?.unlocksAllPremium) return 'basic';
+  return 'free';
+}
+
+export function periodLabel(plan) {
+  if (isLifetimePlan(plan)) return '';
+  if (!plan?.durationDays) return '';
+  if (plan.durationDays >= 360) return '/yr';
+  if (plan.durationDays >= 175) return '/6mo';
+  return '/mo';
+}
+
+// Offline/first-paint fallback only. When a backend is attached the ladder is
+// whatever /billing/plans returns, so pricing and copy can change from the
+// admin dashboard without shipping an app update.
+export const FALLBACK_PLANS = [
+  {
+    code: 'FREE', name: 'Free', price: 0, currency: 'USD',
+    features: ['Basic items free', 'Unlock premium items with credits', 'Earn credits by watching ads'],
+  },
+  {
+    code: 'BASIC', name: 'Basic', price: 4.99, currency: 'USD', unlocksAllPremium: true, adsDisabled: true,
+    features: ['Everything in Free', 'All premium items unlocked', 'No ads', '100 download credits'],
+  },
+  {
+    code: 'PREMIUM', name: 'Premium', price: 9.99, currency: 'USD', isUnlimited: true, unlocksAllPremium: true, adsDisabled: true,
+    features: ['Everything in Basic', 'Unlimited downloads', 'Unlimited editing', 'Priority support'],
+  },
+];
+
+// Deep link into Google Play's own subscription-management page for one SKU,
+// so cancelling/changing a plan goes through Play itself rather than the app
+// trying to reimplement it.
+export function playManageSubscriptionUrl(playStoreProductId) {
+  const sku = getPlaySku(playStoreProductId);
+  const pkg = Constants.expoConfig?.android?.package;
+  if (!pkg) return 'https://play.google.com/store/account/subscriptions';
+  const base = `https://play.google.com/store/account/subscriptions?package=${pkg}`;
+  return sku ? `${base}&sku=${sku}` : base;
 }

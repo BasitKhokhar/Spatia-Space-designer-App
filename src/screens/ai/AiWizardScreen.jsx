@@ -8,10 +8,12 @@ import HeaderBar from '@/components/ui/HeaderBar';
 import Icon from '@/components/icons/Icon';
 import EmptyState from '@/components/feedback/EmptyState';
 import NotEnoughCreditsModal from '@/components/feedback/NotEnoughCreditsModal';
+import PolicyViolationModal from '@/components/feedback/PolicyViolationModal';
 import { useTheme } from '@/theme/useTheme';
 import { useAiBriefStore } from '@/store/useAiBriefStore';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { aiApi } from '@/services/api/aiApi';
+import { describeModerationError } from '@/utils/moderationErrors';
 import { notifySessionExpired } from '@/services/api/session';
 import { ROUTES } from '@/navigation/routes';
 import WizardShell from './components/WizardShell';
@@ -49,6 +51,10 @@ export default function AiWizardScreen({ navigation }) {
   // again if the server refuses the charge. Which one it was decides where
   // dismissing the dialog leaves the user.
   const [shortOnCredits, setShortOnCredits] = useState(null);
+  // A refusal from the AI safety gate: a blocked brief, a locked account, or a
+  // moderation check that could not run. Held as a presentation object rather
+  // than a raw error so the modal never has to know about API codes.
+  const [refusal, setRefusal] = useState(null);
 
   // The wizard is driven entirely by the server's config, so new space types and
   // room vocabularies appear without an app release.
@@ -124,8 +130,20 @@ export default function AiWizardScreen({ navigation }) {
       // The balance can move between opening the wizard and submitting it (an
       // export on another screen, a second device). A refused charge is not a
       // dead end — show the same top-up dialog, keeping the brief intact.
-      if (e.status === 402 || e.code === 'INSUFFICIENT_CREDITS') setShortOnCredits('submit');
-      else setError(e);
+      if (e.status === 402 || e.code === 'INSUFFICIENT_CREDITS') {
+        setShortOnCredits('submit');
+        return;
+      }
+      // A brief the safety gate refused is not a broken wizard — the answers
+      // are still good and mostly still usable, so this stays on the step and
+      // explains what to change instead of falling through to the full-screen
+      // error state (which would strand the user with no way back to editing).
+      const moderation = describeModerationError(e);
+      if (moderation.type !== 'passthrough') {
+        setRefusal(moderation);
+        return;
+      }
+      setError(e);
     } finally {
       setStarting(false);
     }
@@ -195,6 +213,18 @@ export default function AiWizardScreen({ navigation }) {
           setShortOnCredits(null);
           if (reason === 'entry') navigation.goBack();
         }}
+      />
+      <PolicyViolationModal
+        visible={refusal !== null}
+        presentation={refusal}
+        // Both roads lead back to the brief; "Edit" just closes onto the step
+        // the user was already on, with every answer intact.
+        onEdit={() => setRefusal(null)}
+        onRetry={() => {
+          setRefusal(null);
+          startGeneration();
+        }}
+        onClose={() => setRefusal(null)}
       />
     </>
   );

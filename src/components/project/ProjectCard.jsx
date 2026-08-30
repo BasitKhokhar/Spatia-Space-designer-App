@@ -14,6 +14,10 @@ import { timeAgo, pluralize, formatArea } from '@/utils/format';
 // the card.
 export default function ProjectCard({ project, onPress, onDelete, style }) {
   const area = formatArea(project.plan?.width, project.plan?.length);
+  // Play requires AI-generated content to be disclosed as such. The badge is
+  // that disclosure wherever a design is listed, not just at the moment it was
+  // made — a card seen a month later still has to say where it came from.
+  const isAi = project.source === 'ai';
 
   return (
     <Card onPress={onPress} padded={false} style={[{ overflow: 'hidden' }, style]}>
@@ -34,6 +38,27 @@ export default function ProjectCard({ project, onPress, onDelete, style }) {
         >
           <Icon name={roomTypeById(project.roomType).icon} size={13} color="#fff" strokeWidth={2} />
         </View>
+        {isAi ? (
+          <View
+            style={{
+              position: 'absolute',
+              top: 8,
+              left: 40,
+              height: 26,
+              paddingHorizontal: 9,
+              borderRadius: 13,
+              backgroundColor: 'rgba(20,17,15,0.55)',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Text
+              style={{ color: '#fff', fontSize: 10, fontWeight: '800', letterSpacing: 0.6 }}
+            >
+              AI
+            </Text>
+          </View>
+        ) : null}
         {onDelete ? (
           <Pressable
             onPress={onDelete}

@@ -4,6 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
+import AdBanner from '@/components/ads/AdBanner';
+
 import { ROUTES } from './routes';
 
 const TAB_ICONS = {
@@ -48,50 +50,52 @@ export default function TabBar({ state, navigation }) {
     if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
   };
 
+  // The banner is anchored inside this wrapper rather than inside the row, so
+  // it sits above the tab buttons and the raised FAB. AdBanner collapses to
+  // nothing when there is no ad, which leaves the bar exactly as it was.
   return (
-    <View
-      style={{
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        backgroundColor: colors.tabBar,
-        borderTopWidth: 1,
-        borderTopColor: colors.lineSoft,
-        paddingTop: 14,
-        paddingBottom: insets.bottom + 10,
-        paddingHorizontal: 24,
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-      }}
-    >
-      {left.map((route) => (
-        <TabButton key={route.key} route={route} isFocused={state.index === routes.indexOf(route)} onPress={() => onPressTab(route, routes.indexOf(route))} />
-      ))}
+    <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
+      <AdBanner />
+      <View
+        style={{
+          backgroundColor: colors.tabBar,
+          borderTopWidth: 1,
+          borderTopColor: colors.lineSoft,
+          paddingTop: 14,
+          paddingBottom: insets.bottom + 10,
+          paddingHorizontal: 24,
+          flexDirection: 'row',
+          alignItems: 'flex-start',
+        }}
+      >
+        {left.map((route) => (
+          <TabButton key={route.key} route={route} isFocused={state.index === routes.indexOf(route)} onPress={() => onPressTab(route, routes.indexOf(route))} />
+        ))}
 
-      <View style={{ width: 64, alignItems: 'center' }}>
-        <Pressable
-          onPress={() => navigation.navigate(ROUTES.newProject)}
-          style={[
-            {
-              width: 56,
-              height: 56,
-              borderRadius: 18,
-              backgroundColor: colors.accent,
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginTop: -14,
-            },
-            shadows.accent,
-          ]}
-        >
-          <Icon name="plus" size={26} color="#fff" strokeWidth={2.6} />
-        </Pressable>
+        <View style={{ width: 64, alignItems: 'center' }}>
+          <Pressable
+            onPress={() => navigation.navigate(ROUTES.newProject)}
+            style={[
+              {
+                width: 56,
+                height: 56,
+                borderRadius: 18,
+                backgroundColor: colors.accent,
+                alignItems: 'center',
+                justifyContent: 'center',
+                marginTop: -14,
+              },
+              shadows.accent,
+            ]}
+          >
+            <Icon name="plus" size={26} color="#fff" strokeWidth={2.6} />
+          </Pressable>
+        </View>
+
+        {right.map((route) => (
+          <TabButton key={route.key} route={route} isFocused={state.index === routes.indexOf(route)} onPress={() => onPressTab(route, routes.indexOf(route))} />
+        ))}
       </View>
-
-      {right.map((route) => (
-        <TabButton key={route.key} route={route} isFocused={state.index === routes.indexOf(route)} onPress={() => onPressTab(route, routes.indexOf(route))} />
-      ))}
     </View>
   );
 }

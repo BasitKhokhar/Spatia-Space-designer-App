@@ -1,98 +1,141 @@
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
+import NetInfo from '@react-native-community/netinfo';
 
-import { REWARDED_AD_UNIT } from '@/constants/adUnits';
+import { useAdFrequency } from '@/store/useAdFrequency';
 
-// Lazy-require the native SDK so the JS bundle still loads if the module isn't
-// present (e.g. running in an environment without the dev client). All ad
-// functionality degrades gracefully.
-let ads = null;
-function getAds() {
-  if (ads) return ads;
-  try {
-    // eslint-disable-next-line global-require
-    ads = require('react-native-google-mobile-ads');
-  } catch {
-    ads = null;
-  }
-  return ads;
-}
+import { AD_CONFIG } from './config';
+import { gatherConsent } from './consent';
+import { setOnline } from './gate';
+import { getAdsModule, markAdsReady, setNpa, onNpaChange } from './state';
+import { preloadRewarded, invalidateRewarded } from './rewarded';
+import { preloadInterstitial, invalidateInterstitial } from './interstitial';
+import { preloadAppOpen, invalidateAppOpen, startAppOpenWatcher, markBootComplete } from './appOpen';
 
-// Called once on app start: request tracking consent (iOS ATT), GDPR/UMP
-// consent, then initialize the ads SDK. Compliance-required before showing ads.
-export async function initMonetization() {
-  // iOS App Tracking Transparency
-  if (Platform.OS === 'ios') {
-    try {
-      // eslint-disable-next-line global-require
-      const { requestTrackingPermissionsAsync } = require('expo-tracking-transparency');
-      await requestTrackingPermissionsAsync();
-    } catch {
-      /* module optional */
-    }
-  }
+let started = false;
 
-  const mod = getAds();
-  if (!mod) return;
-
-  try {
-    const { AdsConsent } = mod;
-    if (AdsConsent) {
-      const info = await AdsConsent.requestInfoUpdate();
-      if (info.isConsentFormAvailable) {
-        await AdsConsent.loadAndShowConsentFormIfRequired();
-      }
-    }
-    await mod.default().initialize();
-  } catch {
-    /* non-fatal */
-  }
-}
-
-// Show a rewarded ad. Resolves true if the user earned the reward.
-export function showRewardedAd() {
+// ATT resolves immediately as *denied* when the app isn't foregrounded, and
+// init runs on cold start — so wait for 'active' before asking.
+function whenAppActive() {
+  if (AppState.currentState === 'active') return Promise.resolve();
   return new Promise((resolve) => {
-    const mod = getAds();
-
-    if (!mod) {
-      // Dev fallback only: simulate a completed ad so the flow is testable
-      // without the native module. Never rewards silently in production builds.
-      if (__DEV__) {
-        setTimeout(() => resolve(true), 1200);
-      } else {
-        resolve(false);
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') {
+        sub.remove();
+        resolve();
       }
-      return;
-    }
-
-    const { RewardedAd, RewardedAdEventType, AdEventType } = mod;
-    const rewarded = RewardedAd.createForAdRequest(REWARDED_AD_UNIT, {
-      requestNonPersonalizedAdsOnly: true,
     });
-
-    let earned = false;
-    const unsub = [];
-
-    unsub.push(
-      rewarded.addAdEventListener(RewardedAdEventType.LOADED, () => rewarded.show())
-    );
-    unsub.push(
-      rewarded.addAdEventListener(RewardedAdEventType.EARNED_REWARD, () => {
-        earned = true;
-      })
-    );
-    unsub.push(
-      rewarded.addAdEventListener(AdEventType.CLOSED, () => {
-        unsub.forEach((u) => u && u());
-        resolve(earned);
-      })
-    );
-    unsub.push(
-      rewarded.addAdEventListener(AdEventType.ERROR, () => {
-        unsub.forEach((u) => u && u());
-        resolve(false);
-      })
-    );
-
-    rewarded.load();
+    // Never block init on a permission prompt that may never become showable.
+    setTimeout(() => {
+      sub.remove();
+      resolve();
+    }, 5_000);
   });
 }
+
+function watchConnectivity() {
+  const apply = (state) => setOnline(state?.isConnected !== false && state?.isInternetReachable !== false);
+  NetInfo.fetch().then(apply).catch(() => {});
+  NetInfo.addEventListener(apply);
+}
+
+function watchSession() {
+  let backgroundedAt = 0;
+  AppState.addEventListener('change', (next) => {
+    if (next === 'background' || next === 'inactive') {
+      backgroundedAt = Date.now();
+    } else if (next === 'active' && backgroundedAt) {
+      if (Date.now() - backgroundedAt > AD_CONFIG.freq.sessionIdleResetMs) {
+        useAdFrequency.getState().resetSession();
+      }
+      backgroundedAt = 0;
+    }
+  });
+}
+
+// Called once on app start. Fire-and-forget is safe: nothing else awaits this
+// directly — every consumer awaits whenAdsReady(), which settles on its own
+// timer even if this function throws or never returns.
+export async function initMonetization() {
+  if (started) return;
+  started = true;
+
+  const mod = getAdsModule();
+  if (!mod) {
+    // getAdsModule() already marked ads unavailable; the app now behaves
+    // exactly as if it contained no ad code at all.
+    return false;
+  }
+
+  let canRequestAds = true;
+
+  try {
+    // Request configuration must be applied BEFORE initialize(), or the first
+    // ad request goes out without the content rating and test-device settings.
+    try {
+      await mod
+        .default()
+        .setRequestConfiguration({
+          maxAdContentRating: mod.MaxAdContentRating?.[AD_CONFIG.maxAdContentRating] || AD_CONFIG.maxAdContentRating,
+          tagForChildDirectedTreatment: AD_CONFIG.tagForChildDirectedTreatment,
+          tagForUnderAgeOfConsent: AD_CONFIG.tagForUnderAgeOfConsent,
+          testDeviceIdentifiers: __DEV__
+            ? ['EMULATOR', ...AD_CONFIG.testDeviceIds]
+            : AD_CONFIG.testDeviceIds,
+        });
+    } catch {
+      /* a rejected configuration must not stop initialisation */
+    }
+
+    // UMP before ATT: the consent form is what decides whether personalised ads
+    // are lawful at all, and Google's guidance is to gather it first.
+    const consent = await gatherConsent();
+    canRequestAds = consent.canRequestAds;
+    setNpa(consent.npa);
+
+    if (Platform.OS === 'ios') {
+      try {
+        await whenAppActive();
+        // eslint-disable-next-line global-require
+        const { requestTrackingPermissionsAsync } = require('expo-tracking-transparency');
+        await requestTrackingPermissionsAsync();
+      } catch {
+        /* module optional */
+      }
+    }
+
+    await mod.default().initialize();
+  } catch {
+    /* non-fatal: readiness is still settled below */
+  } finally {
+    markAdsReady(canRequestAds !== false);
+  }
+
+  watchConnectivity();
+  watchSession();
+  markBootComplete();
+  startAppOpenWatcher();
+
+  // Consent can change later (the Settings privacy row). Drop any cached ad so
+  // the next request carries the new personalisation flag.
+  onNpaChange(() => {
+    invalidateRewarded();
+    invalidateInterstitial();
+    invalidateAppOpen();
+    preloadRewarded();
+    preloadInterstitial();
+    preloadAppOpen();
+  });
+
+  preloadRewarded();
+  preloadInterstitial();
+  preloadAppOpen();
+
+  return true;
+}
+
+export { whenAdsReady, isAdsReady } from './state';
+export { canShowAds, canShowRewarded } from './gate';
+export { showRewardedAd, showRewardedAdEx, preloadRewarded, isRewardedReady } from './rewarded';
+export { maybeShowInterstitial, scheduleInterstitial, preloadInterstitial } from './interstitial';
+export { privacyOptionsRequired, showPrivacyOptionsForm, resetConsentForDebug } from './consent';
+export { PLACEMENT } from './placements';

@@ -21,6 +21,11 @@ import { useAiBriefStore } from '@/store/useAiBriefStore';
 import { useBannersStore } from '@/store/useBannersStore';
 import { accent } from '@/theme/colors';
 import { ROUTES } from '@/navigation/routes';
+import { useTabPadding } from '@/store/useAdLayout';
+import { scheduleInterstitial } from '@/services/ads/interstitial';
+import { PLACEMENT } from '@/services/ads/placements';
+import { useAdFrequency } from '@/store/useAdFrequency';
+import DailyBonusCard from '@/components/home/DailyBonusCard';
 
 // The home screen is a jumping-off point, not an archive: only the projects the
 // user is likely still working on belong here. The full list lives in Projects.
@@ -55,6 +60,9 @@ function Avatar({ initial }) {
 
 export default function HomeScreen({ navigation }) {
   const { colors } = useTheme();
+  // Extends past the floating tab bar, plus the banner's height when one is
+  // showing (0 otherwise, so the layout is unchanged without ads).
+  const tabPadding = useTabPadding(120);
   const user = useAuthStore((s) => s.user);
   const balance = useCreditsStore((s) => s.balance);
   const tier = useCreditsStore((s) => s.tier);
@@ -109,12 +117,18 @@ export default function HomeScreen({ navigation }) {
   const startBlank = () => {
     createProject({});
     navigation.navigate(ROUTES.editor);
+    // A project was just created and the editor is a freshly mounted, idle
+    // canvas — a natural break, not an interruption. Fire-and-forget: the
+    // navigation above never waits on it, and it self-suppresses if the
+    // frequency caps say no or nothing is cached.
+    useAdFrequency.getState().noteQualifyingAction();
+    scheduleInterstitial(PLACEMENT.projectCreated);
   };
   const browseTemplates = () => navigation.navigate(ROUTES.category);
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tabPadding }}>
         {/* Header */}
         <View
           style={{
@@ -183,6 +197,11 @@ export default function HomeScreen({ navigation }) {
             />
           </>
         )}
+
+        {/* Self-hiding: renders nothing for subscribers or once the day's cap
+            is reached. Its own spacing lives on the card, so an empty wrapper
+            can't leave a gap behind when it disappears. */}
+        <DailyBonusCard style={{ marginHorizontal: 24, marginTop: 28 }} />
 
         {tier === 'free' ? (
           <View style={{ paddingHorizontal: 24, marginTop: 28 }}>

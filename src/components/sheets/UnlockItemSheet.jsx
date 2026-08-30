@@ -8,7 +8,7 @@ import { useTheme } from '@/theme/useTheme';
 import { useUnlockPrompt } from '@/store/useUnlockPrompt';
 import { useCreditsStore } from '@/store/useCreditsStore';
 import { useUnlocksStore } from '@/store/useUnlocksStore';
-import { showRewardedAd } from '@/services/ads/admob';
+import { useRewardedFlow } from '@/hooks/useRewardedFlow';
 import { itemCost } from '@/data/catalog';
 import { navigate } from '@/navigation/navigationRef';
 import { ROUTES } from '@/navigation/routes';
@@ -25,12 +25,16 @@ export default function UnlockItemSheet() {
   const finish = useUnlockPrompt((s) => s.finish);
 
   const balance = useCreditsStore((s) => s.balance);
-  const [working, setWorking] = useState(false);
+  const { busy: adBusy, canWatch, watch } = useRewardedFlow();
+  const [spending, setSpending] = useState(false);
   const [done, setDone] = useState(false);
+
+  // The sheet is blocking while either a spend or an ad is in flight.
+  const working = spending || adBusy;
 
   // Reset transient UI each time the sheet opens.
   useEffect(() => {
-    if (visible) { setWorking(false); setDone(false); }
+    if (visible) { setSpending(false); setDone(false); }
   }, [visible, item?.id]);
 
   if (!item) return null;
@@ -42,27 +46,22 @@ export default function UnlockItemSheet() {
   const close = (result) => { if (!working) finish(result); };
 
   const doSpend = async () => {
-    setWorking(true);
+    setSpending(true);
     const ok = await useCreditsStore.getState().spendItem(cost, item.id);
     if (ok) {
       useUnlocksStore.getState().unlock(item.id); // permanent local mirror
       setDone(true);
       setTimeout(() => finish(true), 750);
     } else {
-      setWorking(false); // spend failed (e.g. race / network) — stay open
+      setSpending(false); // spend failed (e.g. race / network) — stay open
     }
   };
 
-  const watchAd = async () => {
-    setWorking(true);
-    const earned = await showRewardedAd();
-    if (earned) await useCreditsStore.getState().earnFromAd();
-    setWorking(false);
-    // balance updates via the store subscription; if now enough the confirm CTA
-    // appears automatically.
-  };
-
-  const canWatchAd = useCreditsStore.getState().canWatchAd();
+  // useRewardedFlow always settles and always clears its busy flag, so the
+  // sheet can never be left permanently un-dismissable by an ad that fails to
+  // load. The balance updates through the store subscription; once it covers
+  // the cost the confirm CTA appears on its own.
+  const watchAd = () => watch();
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={() => close(false)} statusBarTranslucent>
@@ -151,7 +150,7 @@ export default function UnlockItemSheet() {
                   </Pressable>
                 ) : (
                   <>
-                    {canWatchAd ? (
+                    {canWatch ? (
                       <Pressable
                         onPress={watchAd}
                         disabled={working}

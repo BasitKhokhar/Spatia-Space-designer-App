@@ -14,6 +14,7 @@ import { useCreditsStore } from '@/store/useCreditsStore';
 import { useDesignCatalog } from '@/hooks/useDesignCatalog';
 import { useOpenDesign } from '@/hooks/useOpenDesign';
 import { ROUTES } from '@/navigation/routes';
+import { useTabPadding } from '@/store/useAdLayout';
 
 // Explore is the browsable face of the premade-design catalog — the same data
 // the "Try Our Creative Designs" flow walks through, but flattened into one
@@ -21,6 +22,9 @@ import { ROUTES } from '@/navigation/routes';
 // creates an editable project, exactly as it does in the guided flow.
 export default function ExploreScreen({ navigation }) {
   const { colors, radius } = useTheme();
+  // Extends past the floating tab bar, plus the banner's height when one is
+  // showing (0 otherwise, so the layout is unchanged without ads).
+  const tabPadding = useTabPadding(120);
   const balance = useCreditsStore((s) => s.balance);
   const { categories, templates, countByCategory, tabsFor, templatesFor, hydrate } =
     useDesignCatalog();
@@ -74,7 +78,7 @@ export default function ExploreScreen({ navigation }) {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tabPadding }}>
         {/* Header */}
         <View style={{ paddingHorizontal: 24, paddingTop: 8 }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>

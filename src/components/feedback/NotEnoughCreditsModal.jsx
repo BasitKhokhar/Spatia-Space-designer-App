@@ -4,6 +4,7 @@ import { Modal, View, Pressable, Animated, Easing } from 'react-native';
 import Text from '@/components/ui/Text';
 import Button from '@/components/ui/Button';
 import { useTheme } from '@/theme/useTheme';
+import { useRewardedFlow } from '@/hooks/useRewardedFlow';
 
 // Shown when a paid action is blocked by an empty wallet — a centered card over
 // a dimmed backdrop with the coin medallion, the exact shortfall, and the two
@@ -22,6 +23,14 @@ export default function NotEnoughCreditsModal({
 }) {
   const { colors, radius, shadows } = useTheme();
   const short = Math.max(0, cost - balance);
+  // Plays the ad in place rather than navigating away. The whole point of this
+  // being a dialog is that the user keeps their position in the flow, and
+  // sending them to a separate screen to earn credits threw that away.
+  const { busy: adBusy, canWatch, perAd, adsDisabled, watch } = useRewardedFlow();
+  // Fall back to the caller's navigation only when a rewarded ad isn't
+  // available here (daily cap reached, no fill, offline).
+  const showInlineWatch = !adsDisabled && canWatch;
+  const showNavFallback = !adsDisabled && !canWatch && !!onEarnCredits;
 
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -125,9 +134,20 @@ export default function NotEnoughCreditsModal({
 
             <View style={{ width: '100%', gap: 10, marginTop: 22 }}>
               <Button title="Get credits" icon="star" iconPosition="left" onPress={onGetCredits} />
-              {onEarnCredits ? (
+              {showInlineWatch ? (
                 <Button
-                  title="Watch an ad for free credits"
+                  title={adBusy ? 'Loading ad…' : `Watch an ad for +${perAd} credit${perAd === 1 ? '' : 's'}`}
+                  variant="secondary"
+                  icon="play"
+                  iconPosition="left"
+                  loading={adBusy}
+                  disabled={adBusy}
+                  onPress={watch}
+                />
+              ) : null}
+              {showNavFallback ? (
+                <Button
+                  title="Earn free credits"
                   variant="secondary"
                   icon="play"
                   iconPosition="left"

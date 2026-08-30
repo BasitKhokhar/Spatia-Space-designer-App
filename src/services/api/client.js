@@ -86,6 +86,11 @@ export async function request(path, { method = 'GET', body, auth = true, _retry 
     const err = new Error((json && (json.message || json.error)) || `API ${res.status}: ${path}`);
     err.status = res.status;
     err.code = json && json.code;
+    // Structured context for errors the caller must react to rather than just
+    // display — the moderation gate sends the flagged categories and which
+    // brief field tripped them. Dropped here, the app could only ever show a
+    // generic message for a refusal it is supposed to explain precisely.
+    err.details = json && json.details;
     throw err;
   }
 

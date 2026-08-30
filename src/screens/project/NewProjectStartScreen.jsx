@@ -7,6 +7,9 @@ import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { useProjectsStore } from '@/store/useProjectsStore';
 import { ROUTES } from '@/navigation/routes';
+import { scheduleInterstitial } from '@/services/ads/interstitial';
+import { PLACEMENT } from '@/services/ads/placements';
+import { useAdFrequency } from '@/store/useAdFrequency';
 
 // A tappable choice card. Tapping runs `onPress` directly (no separate Continue).
 function ChoiceRow({ icon, iconFill, title, subtitle, onPress, badge }) {
@@ -72,6 +75,12 @@ export default function NewProjectStartScreen({ navigation }) {
   const startBlank = () => {
     createProject({});
     navigation.navigate(ROUTES.editor);
+    // A project was just created and the editor is a freshly mounted, idle
+    // canvas — a natural break, not an interruption. Fire-and-forget: the
+    // navigation above never waits on it, and it self-suppresses if the
+    // frequency caps say no or nothing is cached.
+    useAdFrequency.getState().noteQualifyingAction();
+    scheduleInterstitial(PLACEMENT.projectCreated);
   };
 
   // Try Our Creative Designs → pick a category, then a premade design.

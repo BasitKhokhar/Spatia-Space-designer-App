@@ -5,56 +5,21 @@ import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { useCreditsStore } from '@/store/useCreditsStore';
-import { showRewardedAd } from '@/services/ads/admob';
+import { useRewardedFlow } from '@/hooks/useRewardedFlow';
 import { isRemote } from '@/services/api/client';
 import { billingApi } from '@/services/api/billingApi';
 import { usePlayBilling } from '@/hooks/usePlayBilling';
-import { displayPriceForPlan, isLifetimePlan } from '@/services/billing/playBilling';
-
-// Offline/first-paint fallback only. When a backend is attached the ladder is
-// whatever /billing/plans returns, so pricing and copy can change from the
-// admin dashboard without shipping an app update.
-const FALLBACK_PLANS = [
-  {
-    code: 'FREE', name: 'Free', price: 0, currency: 'USD',
-    features: ['Basic items free', 'Unlock premium items with credits', 'Earn credits by watching ads'],
-  },
-  {
-    code: 'BASIC', name: 'Basic', price: 4.99, currency: 'USD', unlocksAllPremium: true, adsDisabled: true,
-    features: ['Everything in Free', 'All premium items unlocked', 'No ads', '100 download credits'],
-  },
-  {
-    code: 'PREMIUM', name: 'Premium', price: 9.99, currency: 'USD', isUnlimited: true, unlocksAllPremium: true, adsDisabled: true,
-    features: ['Everything in Basic', 'Unlimited downloads', 'Unlimited editing', 'Priority support'],
-  },
-];
-
-// Mirrors the backend's tier derivation (routes/billingRoutes.js#my-status) so
-// the "Current plan" badge lands on the right card.
-function tierForPlan(plan) {
-  if (plan.isUnlimited) return 'premium';
-  if (plan.unlocksAllPremium) return 'basic';
-  return 'free';
-}
-
-function periodLabel(plan) {
-  if (isLifetimePlan(plan)) return '';
-  if (!plan.durationDays) return '';
-  if (plan.durationDays >= 360) return '/yr';
-  if (plan.durationDays >= 175) return '/6mo';
-  return '/mo';
-}
+import { displayPriceForPlan, tierForPlan, periodLabel, FALLBACK_PLANS } from '@/services/billing/playBilling';
 
 export default function PaywallScreen({ navigation, route }) {
   const { colors, radius, shadows } = useTheme();
   const needed = route.params?.needed;
   const balance = useCreditsStore((s) => s.balance);
   const tier = useCreditsStore((s) => s.tier);
-  const earnFromAd = useCreditsStore((s) => s.earnFromAd);
-  const canWatchAd = useCreditsStore((s) => s.canWatchAd);
   const refreshCredits = useCreditsStore((s) => s.refresh);
+  const { busy: adBusy, canWatch, perAd, adsDisabled, watch } = useRewardedFlow();
 
-  const [adBusy, setAdBusy] = useState(false);
+
   const [serverPlans, setServerPlans] = useState(null);
   const [loadingPlans, setLoadingPlans] = useState(isRemote());
 
@@ -106,14 +71,6 @@ export default function PaywallScreen({ navigation, route }) {
   );
 
   const busy = adBusy || billingBusy;
-
-  const watch = async () => {
-    if (!canWatchAd()) return;
-    setAdBusy(true);
-    const earned = await showRewardedAd();
-    if (earned) await earnFromAd();
-    setAdBusy(false);
-  };
 
   const subscribe = async (plan) => {
     if (plan.tier === 'free' || plan.tier === tier) return;
@@ -249,14 +206,16 @@ export default function PaywallScreen({ navigation, route }) {
               );
             })}
 
-            {/* Keep earning free credits (retains the original watch-ad path). */}
-            {tier === 'free' ? (
+            {/* Keep earning free credits. Hidden for anyone whose plan removed
+                ads — offering one on the purchase screen to a paying user is
+                both a policy risk and a conversion killer. */}
+            {!adsDisabled ? (
               <Pressable
                 onPress={watch}
-                disabled={busy || !canWatchAd()}
+                disabled={busy || !canWatch}
                 style={{
                   borderWidth: 1, borderColor: colors.lineSoft, borderRadius: radius.md, padding: 14,
-                  flexDirection: 'row', alignItems: 'center', gap: 12, opacity: canWatchAd() ? 1 : 0.5,
+                  flexDirection: 'row', alignItems: 'center', gap: 12, opacity: canWatch ? 1 : 0.5,
                 }}
               >
                 <View style={{ width: 38, height: 38, borderRadius: 11, backgroundColor: colors.dangerSoftLight, alignItems: 'center', justifyContent: 'center' }}>
@@ -264,7 +223,7 @@ export default function PaywallScreen({ navigation, route }) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text variant="bodySm" style={{ fontFamily: 'Manrope_700Bold' }}>Watch an ad</Text>
-                  <Text variant="bodySm" color="ink3">+1 credit · you have {balance}</Text>
+                  <Text variant="bodySm" color="ink3">+{perAd} credit{perAd === 1 ? '' : 's'} · you have {balance}</Text>
                 </View>
                 {busy ? <ActivityIndicator color={colors.accent} /> : <Text variant="bodySm" color="accent" style={{ fontFamily: 'Manrope_700Bold' }}>Watch</Text>}
               </Pressable>

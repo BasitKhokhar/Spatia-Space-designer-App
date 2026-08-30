@@ -20,6 +20,7 @@ import RoomStyleSheet from '@/components/sheets/RoomStyleSheet';
 import RoomSettingsSheet from '@/components/sheets/RoomSettingsSheet';
 import TextSettingsSheet from '@/components/sheets/TextSettingsSheet';
 import AiSummarySheet from '@/components/sheets/AiSummarySheet';
+import ReportContentSheet from '@/components/sheets/ReportContentSheet';
 import CatalogDrawer from '@/components/editor/CatalogDrawer';
 import { EDITOR_TOOLS } from '@/data/editorTools';
 import FloorSwitcher from '@/components/editor/FloorSwitcher';
@@ -217,6 +218,7 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
   const textSheetRef = useRef(null);
   const floorSheetRef = useRef(null);
   const aiSummarySheetRef = useRef(null);
+  const reportSheetRef = useRef(null);
   const history = useRef({ past: [], future: [] });
 
   // An AI-generated plan arrives here with a summary in tow. Present it once so
@@ -2164,7 +2166,24 @@ export default function FloorPlanEditorScreen({ navigation, route }) {
           aiSummarySheetRef.current?.dismiss();
           navigation.navigate(ROUTES.aiWizard);
         }}
+        onReport={() => {
+          aiSummarySheetRef.current?.dismiss();
+          // Waits out the dismissal, otherwise the two sheets fight over the
+          // same presentation slot and neither appears.
+          setTimeout(() => reportSheetRef.current?.present(), 260);
+        }}
         onDone={() => aiSummarySheetRef.current?.dismiss()}
+      />
+      <ReportContentSheet
+        ref={reportSheetRef}
+        project={{
+          name: project?.name,
+          id: project?.id,
+          serverId: project?.serverId,
+          // The route param wins: it is the job this screen was opened with,
+          // and is present even before the store has reconciled the project.
+          aiJobId: route?.params?.aiJobId ?? project?.aiJobId,
+        }}
       />
       <RoomStyleSheet
         ref={styleSheetRef}

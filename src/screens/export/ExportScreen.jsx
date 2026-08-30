@@ -14,6 +14,7 @@ import { useCreditsStore } from '@/store/useCreditsStore';
 import { CREDITS } from '@/constants/config';
 import { exportPng, exportPdf, exportObj } from '@/services/export/exporters';
 import { ROUTES } from '@/navigation/routes';
+import { useRewardedFlow } from '@/hooks/useRewardedFlow';
 
 const OPTIONS = [
   { id: 'png', icon: 'image', title: 'High-Res Image', sub: 'PNG · 1920×1080', cost: CREDITS.costs.png, group: '2D' },
@@ -27,17 +28,21 @@ export default function ExportScreen({ navigation }) {
   const incrementExports = useProjectsStore((s) => s.incrementExports);
   const balance = useCreditsStore((s) => s.balance);
   const spend = useCreditsStore((s) => s.spend);
-  // Pro subscribers download without spending credits.
-  const unlimited = useCreditsStore((s) => s.tier === 'pro' || s.isUnlimited);
+  // Premium (or the legacy isUnlimited flag) downloads without spending credits.
+  // The tier vocabulary is free | basic | premium — an earlier 'pro' check here
+  // matched nothing, so Premium subscribers were charged for every export.
+  const unlimited = useCreditsStore((s) => s.tier === 'premium' || s.isUnlimited);
+  const { busy: adBusy, canWatch, perAd, adsDisabled, watch } = useRewardedFlow();
   const [selected, setSelected] = useState('obj');
   const [busy, setBusy] = useState(false);
   const previewRef = useRef(null);
 
   const option = OPTIONS.find((o) => o.id === selected);
+  const shortBy = unlimited ? 0 : Math.max(0, option.cost - balance);
 
   const runExport = async () => {
     if (!project) return;
-    // Pro tier skips the credit gate entirely; everyone else must cover the cost.
+    // Premium skips the credit gate entirely; everyone else must cover the cost.
     if (!unlimited && balance < option.cost) {
       navigation.navigate(ROUTES.paywall, { needed: option.cost, have: balance });
       return;
@@ -143,14 +148,22 @@ export default function ExportScreen({ navigation }) {
       </ScrollView>
 
       <View style={{ position: 'absolute', bottom: 34, left: 24, right: 24 }}>
-        {!unlimited ? (
+        {/* Hidden for anyone whose plan removed ads. Note this is the one place
+            the two entitlements differ: Basic has no ads but still spends
+            credits per download, so it keeps the credit gate without this row. */}
+        {!unlimited && !adsDisabled && canWatch ? (
           <Pressable
-            onPress={() => navigation.navigate(ROUTES.earnCredits)}
-            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12 }}
+            onPress={watch}
+            disabled={adBusy}
+            style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 12, opacity: adBusy ? 0.6 : 1 }}
           >
             <Icon name="play" size={16} color={colors.accent} />
             <Text variant="bodySm" color="accent" style={{ fontWeight: '700' }}>
-              Watch ad to earn credits
+              {adBusy
+                ? 'Loading ad…'
+                : shortBy > 0
+                  ? `Watch ad for +${perAd} — need ${shortBy} more`
+                  : `Watch ad to earn +${perAd} credit${perAd === 1 ? '' : 's'}`}
             </Text>
           </Pressable>
         ) : null}

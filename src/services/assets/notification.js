@@ -195,6 +195,11 @@ export async function showProgress(state) {
         // Keeps the process alive while backgrounded. Only while genuinely
         // running — a paused download must not hold a foreground service.
         asForegroundService: running,
+        // Must stay a subset of the manifest's foregroundServiceType or
+        // Android 14+ kills the process at startForeground(). Notifee's AAR
+        // declares only shortService, so plugins/withNotifeeForegroundServiceType.js
+        // overrides the service element to dataSync|shortService — keep the two
+        // in step.
         foregroundServiceTypes: [AndroidForegroundServiceType.FOREGROUND_SERVICE_TYPE_DATA_SYNC],
         pressAction: { id: 'default', launchActivity: 'default' },
       },

@@ -20,6 +20,9 @@ import {
   computeEstimate,
 } from '@/domain/estimate';
 import { formatMoney } from '@/domain/cost';
+import { scheduleInterstitial } from '@/services/ads/interstitial';
+import { PLACEMENT } from '@/services/ads/placements';
+import { useAdFrequency } from '@/store/useAdFrequency';
 
 // Onboarding-styled construction estimator. A single stack screen that manages
 // an internal step index: scope → one step per material → summary. Grey
@@ -71,6 +74,7 @@ export default function EstimateScreen({ navigation }) {
   };
 
   const onSave = () => {
+    // Early return is the failure path (no active project) — no ad there.
     if (!active) return navigation.goBack();
     const stage = items.length > greyItems().length ? 'interior' : 'grey';
     updatePlan(active.id, {
@@ -78,6 +82,10 @@ export default function EstimateScreen({ navigation }) {
       estimate: { currency, measurements, prices, stage, updatedAt: Date.now() },
     });
     navigation.goBack();
+
+    // The estimate is finished and saved: the user is between tasks.
+    useAdFrequency.getState().noteQualifyingAction();
+    scheduleInterstitial(PLACEMENT.estimateSaved);
   };
 
   const headerTitle =

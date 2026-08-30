@@ -107,6 +107,11 @@ export default function AiGeneratingScreen({ navigation, route }) {
       name: next.project.name,
       roomType: next.project.roomType,
       template: { plan: next.project.plan, name: next.project.name, rooms: next.project.rooms },
+      // Marks the design as AI-made for the life of the project: the card
+      // badge that discloses it, and the report flow that needs the job it
+      // came from, both read these.
+      source: 'ai',
+      aiJobId: jobId,
     });
 
     // The generation charge happened server-side, so pull the real balance.
@@ -117,7 +122,10 @@ export default function AiGeneratingScreen({ navigation, route }) {
     // the editor should go home rather than into a submitted brief.
     navigation.reset({
       index: 1,
-      routes: [{ name: ROUTES.tabs }, { name: ROUTES.editor, params: { aiSummary: next.summary } }],
+      routes: [
+        { name: ROUTES.tabs },
+        { name: ROUTES.editor, params: { aiSummary: next.summary, aiJobId: jobId } },
+      ],
     });
   };
 

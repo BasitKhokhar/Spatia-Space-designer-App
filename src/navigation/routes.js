@@ -37,6 +37,7 @@ export const ROUTES = {
   // Credits
   earnCredits: 'EarnCredits',
   paywall: 'Paywall',
+  subscription: 'Subscription',
   itemSheet: 'ItemPlacement',
   // Settings
   settings: 'Settings',

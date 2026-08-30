@@ -51,6 +51,7 @@ import EstimateScreen from '@/screens/estimate/EstimateScreen';
 import ExportScreen from '@/screens/export/ExportScreen';
 import EarnCreditsScreen from '@/screens/credits/EarnCreditsScreen';
 import PaywallScreen from '@/screens/credits/PaywallScreen';
+import SubscriptionScreen from '@/screens/subscription/SubscriptionScreen';
 import ProfileScreen from '@/screens/profile/ProfileScreen';
 import SettingsScreen from '@/screens/settings/SettingsScreen';
 import HelpSupportScreen from '@/screens/settings/HelpSupportScreen';
@@ -183,6 +184,7 @@ export default function RootNavigator() {
               <Stack.Screen name={ROUTES.estimate} component={EstimateScreen} />
               <Stack.Screen name={ROUTES.export} component={ExportScreen} />
               <Stack.Screen name={ROUTES.earnCredits} component={EarnCreditsScreen} />
+              <Stack.Screen name={ROUTES.subscription} component={SubscriptionScreen} />
               <Stack.Screen name={ROUTES.profile} component={ProfileScreen} />
               <Stack.Screen name={ROUTES.settings} component={SettingsScreen} />
               <Stack.Screen name={ROUTES.help} component={HelpSupportScreen} />

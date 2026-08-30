@@ -4,6 +4,9 @@ import { useProjectsStore } from '@/store/useProjectsStore';
 import { useUnlocksStore } from '@/store/useUnlocksStore';
 import { unlockTemplate } from '@/services/api/templatesApi';
 import { ROUTES } from '@/navigation/routes';
+import { scheduleInterstitial } from '@/services/ads/interstitial';
+import { PLACEMENT } from '@/services/ads/placements';
+import { useAdFrequency } from '@/store/useAdFrequency';
 
 // Opening a premade design, shared by every screen that lists them: free
 // designs go straight into the (editable) editor; premium ones spend credits
@@ -26,6 +29,10 @@ export function useOpenDesign(navigation) {
 
   const openDesign = useCallback(
     async (t) => {
+      // Captured before the unlock branch: a design the user just paid credits
+      // for must not be followed by an ad.
+      const wasFree = !isLocked(t);
+
       if (isLocked(t)) {
         setOpeningId(t.id);
         try {
@@ -40,6 +47,13 @@ export function useOpenDesign(navigation) {
       }
       createProject({ template: t });
       navigation.navigate(ROUTES.editor);
+
+      // Central for every design lister (Explore, StarterIdeas, ...), so the
+      // rule lives in one place rather than at each call site.
+      if (wasFree) {
+        useAdFrequency.getState().noteQualifyingAction();
+        scheduleInterstitial(PLACEMENT.designOpened);
+      }
     },
     [isLocked, unlock, createProject, navigation]
   );

@@ -113,7 +113,7 @@ export const useProjectsStore = create(
         );
       },
 
-      createProject: ({ name, roomType, width, length, variant = 0, seed = false, ideaId = null, template = null }) => {
+      createProject: ({ name, roomType, width, length, variant = 0, seed = false, ideaId = null, template = null, source = null, aiJobId = null }) => {
         const now = Date.now();
         const tempId = uid('proj');
         // Stable, client-generated key. Round-trips through the backend so this
@@ -173,6 +173,12 @@ export const useProjectsStore = create(
           floors,
           activeFloorId: activeFloor.id,
           plan: activeFloor.plan, // mirror of the active floor's plan (kept in sync by the store)
+          // Provenance. 'ai' marks a design a model produced, which the UI has
+          // to disclose (Play AI-Generated Content policy) and which gives the
+          // report flow the generation to point at. Projects the user drew
+          // carry neither field and read as manual.
+          source,
+          aiJobId,
         };
         set((s) => ({ projects: [project, ...s.projects], activeProjectId: project.id }));
 

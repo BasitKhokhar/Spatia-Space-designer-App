@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Linking, View, ScrollView, Alert } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
 
 import Screen from '@/components/ui/Screen';
 import Text from '@/components/ui/Text';
@@ -17,6 +16,9 @@ import { billingApi } from '@/services/api/billingApi';
 import { APP_VERSION, BUILD_NUMBER } from '@/constants/config';
 import { LINKS } from '@/constants/links';
 import { ROUTES } from '@/navigation/routes';
+import { useTabPadding } from '@/store/useAdLayout';
+import { privacyOptionsRequired, showPrivacyOptionsForm, resetConsentForDebug } from '@/services/ads/consent';
+import { getAdsModule } from '@/services/ads/state';
 
 function Group({ title, danger, children }) {
   const { colors, radius } = useTheme();
@@ -45,6 +47,24 @@ export default function SettingsScreen({ navigation, route }) {
   // Mounted as the last tab (no back button, clears the floating tab bar) or
   // pushed on the stack from Profile / the editor (normal back header).
   const isTab = route?.name === ROUTES.settingsTab;
+  // Only the tab copy sits under the floating tab bar / banner; the pushed
+  // stack copy has neither.
+  const tabPadding = useTabPadding(130);
+  // UMP requires a persistent entry point back to the consent form, but only
+  // where consent is actually regulated (EEA/UK and some US states). Elsewhere
+  // the row would just be a confusing dead end, so it stays hidden.
+  const [showAdPrivacy, setShowAdPrivacy] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    privacyOptionsRequired()
+      .then((required) => {
+        if (alive) setShowAdPrivacy(required);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
   const themePreference = useSettingsStore((s) => s.themePreference);
   const setThemePreference = useSettingsStore((s) => s.setThemePreference);
   const measurementUnit = useSettingsStore((s) => s.measurementUnit);
@@ -65,9 +85,8 @@ export default function SettingsScreen({ navigation, route }) {
     return `${mb(usage.usedBytes)} / ${mb(usage.requiredBytes)}`;
   }, [catalogItems, assetState.status, assetState.usedBytes]);
 
-  // The licence key belongs to the active subscription (a Play purchase or an
-  // admin grant), so it comes from the server rather than any local store.
-  // Free users have none and the row stays hidden.
+  // Entitlement snapshot for the "Subscription" row's value label — comes from
+  // the server rather than any local store. Free/local users just show "Free".
   const [subscription, setSubscription] = useState(null);
   useEffect(() => {
     if (!isRemote()) return undefined;
@@ -78,11 +97,9 @@ export default function SettingsScreen({ navigation, route }) {
     return () => { alive = false; };
   }, []);
 
-  const copyLicenseKey = async () => {
-    if (!subscription?.licenseKey) return;
-    await Clipboard.setStringAsync(subscription.licenseKey);
-    Alert.alert('Copied', 'Your licence key is on the clipboard.');
-  };
+  const planLabel = subscription?.tier && subscription.tier !== 'free'
+    ? (subscription.currentPlanCode || subscription.tier)
+    : 'Free';
 
   const confirmLogout = () =>
     Alert.alert('Log out', 'Are you sure you want to log out?', [
@@ -90,12 +107,17 @@ export default function SettingsScreen({ navigation, route }) {
       { text: 'Log Out', style: 'destructive', onPress: logout },
     ]);
 
+  const openLegalLink = (url) =>
+    Linking.openURL(url).catch(() =>
+      Alert.alert('Unable to open link', 'Please check your internet connection and try again.')
+    );
+
   return (
     <Screen edges={isTab ? ['top'] : ['top', 'bottom']}>
       <HeaderBar title="Settings" onBack={isTab ? undefined : () => navigation.goBack()} />
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: isTab ? 130 : 40 }}
+        contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: isTab ? tabPadding : 40 }}
       >
         <Group title="ACCOUNT">
           <ListRow icon="user" label="Profile" onPress={() => navigation.navigate(ROUTES.profile)} />
@@ -108,20 +130,10 @@ export default function SettingsScreen({ navigation, route }) {
           <RowDivider />
           <ListRow icon="upload" label="Export History" onPress={() => navigation.navigate(ROUTES.export)} />
           <RowDivider />
-          <ListRow icon="cart" label="Credits & Plans" onPress={() => navigation.navigate(ROUTES.earnCredits)} />
+          <ListRow icon="gem" label="Subscription" value={planLabel} onPress={() => navigation.navigate(ROUTES.subscription)} />
           <RowDivider />
-          {subscription?.licenseKey ? (
-            <>
-              <ListRow
-                icon="check"
-                label="Your licence"
-                value={subscription.licenseKey}
-                showChevron={false}
-                onPress={copyLicenseKey}
-              />
-              <RowDivider />
-            </>
-          ) : null}
+          <ListRow icon="cart" label="Earn Credits" onPress={() => navigation.navigate(ROUTES.earnCredits)} />
+          <RowDivider />
           <ListRow icon="bell" label="Notification Preferences" onPress={() => {}} />
         </Group>
 
@@ -178,10 +190,32 @@ export default function SettingsScreen({ navigation, route }) {
           <RowDivider />
           <ListRow icon="help" label="Help & Support" onPress={() => navigation.navigate(ROUTES.help)} />
           <RowDivider />
-          <ListRow icon="shield" label="Privacy Policy" onPress={() => Linking.openURL(LINKS.privacy)} />
+          {showAdPrivacy ? (
+            <>
+              <ListRow
+                icon="settings"
+                label="Ad privacy settings"
+                onPress={() => showPrivacyOptionsForm()}
+              />
+              <RowDivider />
+            </>
+          ) : null}
+          <ListRow icon="shield" label="Privacy Policy" onPress={() => openLegalLink(LINKS.privacy)} />
           <RowDivider />
-          <ListRow icon="file" label="Terms & Conditions" onPress={() => Linking.openURL(LINKS.terms)} />
+          <ListRow icon="file" label="Terms & Conditions" onPress={() => openLegalLink(LINKS.terms)} />
         </Group>
+
+        {__DEV__ ? (
+          <Group title="DEVELOPER">
+            <ListRow
+              icon="search"
+              label="Ad inspector"
+              onPress={() => getAdsModule()?.default?.().openAdInspector?.()}
+            />
+            <RowDivider />
+            <ListRow icon="eye" label="Reset ad consent" onPress={() => resetConsentForDebug()} />
+          </Group>
+        ) : null}
 
         <Group title="DANGER ZONE" danger>
           <ListRow icon="trash" label="Delete Account" danger onPress={() => navigation.navigate(ROUTES.deleteAccount)} />

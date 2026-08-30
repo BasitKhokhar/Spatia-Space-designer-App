@@ -18,6 +18,7 @@ export const linking = {
       [ROUTES.view3d]: 'project/:id/3d',
       [ROUTES.export]: 'project/:id/export',
       [ROUTES.earnCredits]: 'credits',
+      [ROUTES.subscription]: 'subscription',
       [ROUTES.help]: 'help',
       [ROUTES.deleteAccount]: 'settings/delete',
     },

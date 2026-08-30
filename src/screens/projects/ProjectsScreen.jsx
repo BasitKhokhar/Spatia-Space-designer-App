@@ -11,11 +11,15 @@ import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { useProjectsStore } from '@/store/useProjectsStore';
 import { ROUTES } from '@/navigation/routes';
+import { useTabPadding } from '@/store/useAdLayout';
 
 // Every project the user has, newest edit first. Home only shows the latest few
 // — this is the complete list.
 export default function ProjectsScreen({ navigation }) {
   const { colors, radius, shadows } = useTheme();
+  // Extends past the floating tab bar, plus the banner's height when one is
+  // showing (0 otherwise, so the layout is unchanged without ads).
+  const tabPadding = useTabPadding(120);
   const projects = useProjectsStore((s) => s.projects);
   const setActive = useProjectsStore((s) => s.setActive);
   const deleteProject = useProjectsStore((s) => s.deleteProject);
@@ -94,7 +98,7 @@ export default function ProjectsScreen({ navigation }) {
           style={{ marginTop: 40 }}
         />
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tabPadding }}>
           <View
             style={{
               flexDirection: 'row',

@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { View, Pressable } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -8,8 +7,7 @@ import Button from '@/components/ui/Button';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { useCreditsStore } from '@/store/useCreditsStore';
-import { CREDITS } from '@/constants/config';
-import { showRewardedAd } from '@/services/ads/admob';
+import { useRewardedFlow } from '@/hooks/useRewardedFlow';
 
 function ProgressRing({ watched, total }) {
   const { colors } = useTheme();
@@ -41,20 +39,17 @@ function ProgressRing({ watched, total }) {
 export default function EarnCreditsScreen({ navigation }) {
   const { colors } = useTheme();
   const balance = useCreditsStore((s) => s.balance);
-  const earnFromAd = useCreditsStore((s) => s.earnFromAd);
-  const canWatchAd = useCreditsStore((s) => s.canWatchAd);
-  const adsRemaining = useCreditsStore((s) => s.adsRemaining);
   const adsWatchedToday = useCreditsStore((s) => s.adsWatchedToday);
-  const [busy, setBusy] = useState(false);
+  // Cap and reward come from the store, not the local CREDITS constants: the
+  // backend is authoritative for both, so reading the constants would make this
+  // screen promise numbers the server does not honour.
+  const { busy, canWatch, adsRemaining, dailyAdCap, perAd, watch } = useRewardedFlow();
 
-  const remaining = adsRemaining();
+  const remaining = adsRemaining;
 
   const onWatch = async () => {
-    if (!canWatchAd()) return;
-    setBusy(true);
-    const earned = await showRewardedAd();
-    if (earned) earnFromAd();
-    setBusy(false);
+    if (!canWatch) return;
+    await watch();
   };
 
   return (
@@ -78,14 +73,14 @@ export default function EarnCreditsScreen({ navigation }) {
       </View>
 
       <View style={{ alignItems: 'center', marginTop: 30 }}>
-        <ProgressRing watched={adsWatchedToday} total={CREDITS.dailyAdCap} />
+        <ProgressRing watched={adsWatchedToday} total={dailyAdCap} />
         <Text variant="h2" align="center" style={{ marginTop: 28 }}>
           Watch & earn
         </Text>
         <Text variant="body" color="ink2" align="center" style={{ marginTop: 12 }}>
           Watch a short 15-second ad to earn{' '}
           <Text variant="body" color="ink" style={{ fontWeight: '700' }}>
-            +{CREDITS.perAd} credit
+            +{perAd} credit{perAd === 1 ? '' : 's'}
           </Text>
           , instantly added to your balance.
         </Text>
@@ -114,15 +109,15 @@ export default function EarnCreditsScreen({ navigation }) {
 
       <View style={{ marginTop: 'auto', marginBottom: 34 }}>
         <Button
-          title={remaining > 0 ? `Watch Ad — Earn ${CREDITS.perAd} Credit` : 'Daily limit reached'}
+          title={remaining > 0 ? `Watch Ad — Earn ${perAd} Credit${perAd === 1 ? '' : 's'}` : 'Daily limit reached'}
           icon="play"
           iconPosition="left"
           onPress={onWatch}
           loading={busy}
-          disabled={remaining === 0}
+          disabled={!canWatch}
         />
         <Text variant="bodySm" color="ink3" align="center" style={{ marginTop: 14 }}>
-          {remaining} of {CREDITS.dailyAdCap} ads left today
+          {remaining} of {dailyAdCap} ads left today
         </Text>
       </View>
     </Screen>
