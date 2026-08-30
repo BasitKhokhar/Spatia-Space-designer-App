@@ -132,13 +132,20 @@ export function displayPriceForPlan(plan, { storeSubs = [], storeProducts = [] }
 
   if (isLifetimePlan(plan)) {
     const product = storeProducts.find((p) => p.id === sku);
-    return extractProductPricing(product).displayPrice;
+    const price = extractProductPricing(product).displayPrice;
+    console.log('[PlayBilling] price for', plan?.code, sku, '(in-app) ->', price, price ? 'LIVE' : 'DB fallback');
+    return price;
   }
 
   const storeSub = storeSubs.find((s) => s.id === sku);
-  if (!storeSub) return null;
+  if (!storeSub) {
+    console.log('[PlayBilling] price for', plan?.code, sku, '-> no matching store sub, DB fallback used');
+    return null;
+  }
   const cycle = getPlanBasePlanId(plan.playStoreProductId) || 'monthly';
-  return extractOfferPricing(findOfferInSub(storeSub, cycle), cycle).displayPrice;
+  const price = extractOfferPricing(findOfferInSub(storeSub, cycle), cycle).displayPrice;
+  console.log('[PlayBilling] price for', plan?.code, sku, 'cycle', cycle, '->', price, price ? 'LIVE' : 'DB fallback');
+  return price;
 }
 
 // Mirrors the backend's tier derivation (routes/billingRoutes.js#my-status) so

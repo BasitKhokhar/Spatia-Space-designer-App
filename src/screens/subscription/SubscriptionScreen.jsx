@@ -43,13 +43,17 @@ export default function SubscriptionScreen({ navigation }) {
     if (!isRemote()) return;
     setLoading(true);
     Promise.all([
-      billingApi.myStatus().catch(() => null),
-      billingApi.myActive().catch(() => null),
-      billingApi.plans().catch(() => null),
+      billingApi.myStatus().catch((e) => { console.log('[BillingApi] my-status FAILED:', e?.message); return null; }),
+      billingApi.myActive().catch((e) => { console.log('[BillingApi] my-active FAILED:', e?.message); return null; }),
+      billingApi.plans().catch((e) => { console.log('[BillingApi] plans FAILED:', e?.message); return null; }),
     ]).then(([s, a, p]) => {
+      console.log('[BillingApi] my-status payload:', JSON.stringify(s, null, 2));
+      console.log('[BillingApi] my-active payload:', JSON.stringify(a, null, 2));
+      console.log('[BillingApi] plans payload:', JSON.stringify(p, null, 2));
       setStatus(s);
       setActive(a);
       const list = Array.isArray(p) ? p : p?.plans || p?.data || null;
+      console.log('[BillingApi] plans resolved list:', Array.isArray(list) ? `${list.length} plan(s)` : list);
       setServerPlans(list);
     }).finally(() => setLoading(false));
   };

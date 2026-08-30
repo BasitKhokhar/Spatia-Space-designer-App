@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import {
   useIAP,
@@ -154,6 +154,12 @@ export function usePlayBilling({ plans = [], onEntitlementChange, onError, onSuc
 
   const { connected, subscriptions, products, requestPurchase, finishTransaction, reconnect } = iap;
   finishRef.current = finishTransaction;
+
+  useEffect(() => {
+    console.log('[PlayBilling] connected:', connected,
+      '| subs:', subscriptions.map((s) => ({ id: s.id, offers: (s.subscriptionOffers || s.subscriptionOfferDetailsAndroid || []).length })),
+      '| products:', products.map((p) => ({ id: p.id, price: p.displayPrice || p.localizedPrice })));
+  }, [connected, subscriptions, products]);
 
   /**
    * Launch the Play billing sheet for a plan. `cycle` picks the base plan when
