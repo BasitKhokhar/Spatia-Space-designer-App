@@ -11,13 +11,29 @@ function ensureConfigured() {
   configured = true;
 }
 
+// Drop the cached Google session. Without this the SDK silently reuses the last
+// account and the picker never appears, so we call it before every sign-in and
+// on app logout.
+export async function signOutGoogle() {
+  try {
+    ensureConfigured();
+    await GoogleSignin.signOut();
+  } catch {
+    // No cached session (or Play Services unavailable) — nothing to clear.
+  }
+}
+
 export async function signInWithGoogle() {
   try {
     ensureConfigured();
     await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    // Always start from a clean slate so Google shows the full account list
+    // instead of auto-picking the previously used email.
+    await signOutGoogle();
     const result = await GoogleSignin.signIn();
     // v13+ nests the payload under `data`; older versions return it directly.
     const idToken = result?.data?.idToken || result?.idToken;
+    // console.log('[social] Google sign-in result', { idToken, user: result?.user });
     if (!idToken) {
       return { provider: 'google', ok: false, reason: 'No ID token returned by Google' };
     }

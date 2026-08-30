@@ -60,12 +60,17 @@ export default function OfflineResourcesSheet({ visible, totalBytes, onDownload,
           Wi-Fi only. You can pause it any time, and change this later in Settings.
         </Text>
 
-        <Button onPress={onDownload} style={{ marginTop: 20 }}>
-          {`Download now (${formatBytes(totalBytes)})`}
-        </Button>
-        <Button variant="secondary" onPress={onOnDemand} style={{ marginTop: 10 }}>
-          Only when I place an item
-        </Button>
+        <Button
+          title={`Download now (${formatBytes(totalBytes)})`}
+          onPress={onDownload}
+          style={{ marginTop: 20 }}
+        />
+        <Button
+          title="Only when I place an item"
+          variant="secondary"
+          onPress={onOnDemand}
+          style={{ marginTop: 10 }}
+        />
         <Pressable onPress={onLater} style={{ paddingVertical: 14, alignItems: 'center' }}>
           <Text variant="bodySm" color="ink3">Not now</Text>
         </Pressable>

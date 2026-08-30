@@ -2,7 +2,7 @@
 // messages are shown automatically by the OS; the background handler
 // registered in index.js only needs to exist so RNFirebase doesn't warn.
 import { Platform } from 'react-native';
-import messaging from '@react-native-firebase/messaging';
+import { getMessaging, getToken, onMessage, onTokenRefresh } from '@react-native-firebase/messaging';
 import notifee, { AndroidImportance } from '@notifee/react-native';
 
 import { isRemote } from '@/services/api/client';
@@ -49,12 +49,14 @@ export async function registerForPushNotifications() {
     const settings = await notifee.requestPermission();
     if (settings.authorizationStatus < 1) return; // denied — nothing to register
 
-    currentToken = await messaging().getToken();
+    const messaging = getMessaging();
+    currentToken = await getToken(messaging);
+    // console.log('[push] got token', currentToken);
     await notificationsApi.registerToken(currentToken, Platform.OS);
 
     if (!listenersAttached) {
       listenersAttached = true;
-      messaging().onTokenRefresh(async (newToken) => {
+      onTokenRefresh(messaging, async (newToken) => {
         currentToken = newToken;
         try {
           await notificationsApi.registerToken(newToken, Platform.OS);
@@ -62,7 +64,7 @@ export async function registerForPushNotifications() {
           console.warn('[push] token refresh registration failed', err?.message || err);
         }
       });
-      messaging().onMessage(displayForeground);
+      onMessage(messaging, displayForeground);
     }
   } catch (err) {
     console.warn('[push] registration failed', err?.message || err);

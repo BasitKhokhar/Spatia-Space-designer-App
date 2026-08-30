@@ -142,12 +142,11 @@ export default function OfflineResourcesScreen({ navigation }) {
 
           {usage.requiredBytes > 0 && (
             <Button
+              title={primaryLabel}
               onPress={onPrimary}
               disabled={complete && !running && !paused}
               style={{ marginTop: 16 }}
-            >
-              {primaryLabel}
-            </Button>
+            />
           )}
         </View>
 

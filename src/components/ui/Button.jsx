@@ -7,6 +7,7 @@ import Icon from '@/components/icons/Icon';
 // Variants: primary (terracotta), secondary (surface), dark (ink), danger, ghost.
 export default function Button({
   title,
+  children,
   onPress,
   variant = 'primary',
   size = 'lg',
@@ -58,7 +59,7 @@ export default function Button({
       ) : (
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {icon && iconPosition === 'left' && <Icon name={icon} size={18} color={palette.fg} strokeWidth={2.4} />}
-          <Text style={{ fontFamily: fonts.display, fontSize, color: palette.fg }}>{title}</Text>
+          <Text style={{ fontFamily: fonts.display, fontSize, color: palette.fg }}>{title ?? children}</Text>
           {icon && iconPosition === 'right' && <Icon name={icon} size={18} color={palette.fg} strokeWidth={2.4} />}
         </View>
       )}
