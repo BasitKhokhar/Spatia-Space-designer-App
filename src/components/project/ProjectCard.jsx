@@ -6,13 +6,16 @@ import Icon from '@/components/icons/Icon';
 import CoverImage, { coverUriOf } from '@/components/graphics/CoverImage';
 import { roomTypeById } from '@/data/roomTypes';
 import { timeAgo, pluralize, formatArea } from '@/utils/format';
+import { useTheme } from '@/theme/useTheme';
 
 // Grid card for a saved project. The cover is the project's own image when it
 // has one, else the bundled house render — a blank project reads as a real
 // design rather than an empty sketch. Pass `onDelete` to show a delete
 // affordance (a circular trash button on the cover); it fires without opening
-// the card.
-export default function ProjectCard({ project, onPress, onDelete, style }) {
+// the card. Pass `onReport` (only meaningful on an AI-sourced project) to show
+// a Report affordance in the footer, for the Projects screen's AI tab.
+export default function ProjectCard({ project, onPress, onDelete, onReport, style }) {
+  const { colors } = useTheme();
   const area = formatArea(project.plan?.width, project.plan?.length);
   // Play requires AI-generated content to be disclosed as such. The badge is
   // that disclosure wherever a design is listed, not just at the moment it was
@@ -88,6 +91,24 @@ export default function ProjectCard({ project, onPress, onDelete, style }) {
           {pluralize(project.rooms, 'room')}
           {area ? ` · ${area}` : ''} · {timeAgo(project.updatedAt)}
         </Text>
+        {isAi && onReport ? (
+          <Pressable
+            onPress={onReport}
+            hitSlop={8}
+            style={({ pressed }) => ({
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 4,
+              marginTop: 8,
+              opacity: pressed ? 0.7 : 1,
+            })}
+          >
+            <Icon name="warning" size={12} color={colors.ink3} strokeWidth={2} />
+            <Text variant="label" color="ink3">
+              Report
+            </Text>
+          </Pressable>
+        ) : null}
       </View>
     </Card>
   );

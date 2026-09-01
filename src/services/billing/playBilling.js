@@ -148,6 +148,91 @@ export function displayPriceForPlan(plan, { storeSubs = [], storeProducts = [] }
   return price;
 }
 
+// ISO-8601 billing period -> a stable cycle key, human label and month count.
+// Play Console base plans aren't required to be *named* "monthly"/"yearly", so
+// cycles are derived from the pricing phase's billingPeriod rather than the
+// offer/basePlan id — that works for whatever cadence is actually configured.
+const CYCLE_BY_PERIOD = {
+  P1W: { cycle: 'weekly', label: 'Weekly', months: 0.25 },
+  P1M: { cycle: 'monthly', label: 'Monthly', months: 1 },
+  P3M: { cycle: 'quarterly', label: '3 Months', months: 3 },
+  P6M: { cycle: 'semiannual', label: '6 Months', months: 6 },
+  P1Y: { cycle: 'yearly', label: 'Yearly', months: 12 },
+};
+
+function cycleInfoForPeriod(period) {
+  return CYCLE_BY_PERIOD[period] || { cycle: 'monthly', label: 'Monthly', months: 1 };
+}
+
+/**
+ * Every purchasable cycle Google Play actually has configured for a plan's
+ * subscription, each with its own live price — the source of truth for what
+ * to display, so a plan the store doesn't (yet) offer a base plan for simply
+ * yields no cycles rather than a guessed one. Cheapest cycle first.
+ */
+export function getPlanOffers(plan, storeSubs = []) {
+  if (!plan || isLifetimePlan(plan)) return [];
+  const sku = getPlaySku(plan.playStoreProductId);
+  if (!sku) return [];
+  const storeSub = storeSubs.find((s) => s.id === sku);
+  if (!storeSub) return [];
+
+  const offers = storeSub.subscriptionOffers || storeSub.subscriptionOfferDetailsAndroid || [];
+  return offers
+    .map((offer) => {
+      const { priceAmount, priceCurrency, billingPeriod, displayPrice } = extractOfferPricing(offer);
+      if (priceAmount == null) return null;
+      const { cycle, label, months } = cycleInfoForPeriod(billingPeriod || 'P1M');
+      return {
+        cycle,
+        label,
+        months,
+        billingPeriod,
+        offerToken: offer.offerToken || offer.offerTokenAndroid || null,
+        priceAmount,
+        priceCurrency,
+        displayPrice,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.months - b.months);
+}
+
+// Percent cheaper per billing cycle vs. paying the shortest (monthly) cycle
+// that many times over — e.g. a yearly offer at 12x the monthly price saves 0%.
+export function savingsPercent(offers, offer) {
+  const baseline = offers.find((o) => o.cycle === 'monthly') || offers[0];
+  if (!baseline || !offer || offer.months <= baseline.months) return 0;
+  if (baseline.priceAmount == null || offer.priceAmount == null) return 0;
+  const costAtBaselineRate = baseline.priceAmount * (offer.months / baseline.months);
+  if (costAtBaselineRate <= 0) return 0;
+  return Math.round(((costAtBaselineRate - offer.priceAmount) / costAtBaselineRate) * 100);
+}
+
+// Play's formattedPrice is a full localized string ("$47.94", "PKR 1,200.00")
+// with the currency symbol embedded — pull just the symbol back out so a
+// per-month figure we compute ourselves (Play never returns one for a multi-
+// month cycle) can be formatted the same way.
+function currencySymbolFromFormatted(formatted) {
+  if (!formatted) return null;
+  const symbol = String(formatted).replace(/[0-9.,\s ]/g, '');
+  return symbol || null;
+}
+
+// The per-month equivalent of a multi-month offer ("$47.94 every 6 months" ->
+// "$7.99"), so cycles of different lengths are comparable at a glance. Falls
+// back to the offer's own total for a monthly (or unrecognised) cycle.
+export function perMonthDisplayPrice(offer) {
+  if (!offer || offer.priceAmount == null || !offer.months || offer.months <= 1) {
+    return offer?.displayPrice ?? null;
+  }
+  const perMonth = offer.priceAmount / offer.months;
+  const symbol = currencySymbolFromFormatted(offer.displayPrice);
+  const amount = perMonth.toFixed(2);
+  if (!symbol) return amount;
+  return offer.displayPrice.trim().endsWith(symbol) ? `${amount} ${symbol}` : `${symbol}${amount}`;
+}
+
 // Mirrors the backend's tier derivation (routes/billingRoutes.js#my-status) so
 // a plan's "Current plan" badge lands on the right card wherever plans are
 // listed (paywall, subscription screen).

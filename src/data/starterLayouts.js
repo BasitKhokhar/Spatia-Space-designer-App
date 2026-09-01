@@ -3,7 +3,7 @@
 // degrees. They scale to whatever dimensions the user picks. Shop rooms open
 // with a working layout (racks + counter) so users start from something real.
 import { addFurnitureItem, updateFurnitureItem } from '@/domain/floorplan';
-import { catalogById } from './catalog';
+import { useCatalogStore } from '@/store/useCatalogStore';
 
 const LAYOUTS = {
   // ---- Home ----
@@ -118,7 +118,7 @@ export function seedPlan(plan, roomTypeId) {
   const seeds = LAYOUTS[roomTypeId];
   if (!seeds) return plan;
   return seeds.reduce((p, s) => {
-    const item = catalogById(s.id);
+    const item = useCatalogStore.getState().byId(s.id);
     if (!item) return p;
     const next = addFurnitureItem(p, item, { x: s.fx * p.width, y: s.fy * p.length });
     const added = next.furniture[next.furniture.length - 1];

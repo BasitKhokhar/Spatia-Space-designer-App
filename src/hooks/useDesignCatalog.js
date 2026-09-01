@@ -11,6 +11,7 @@ export function useDesignCatalog() {
   const storeCategories = useTemplatesStore((s) => s.categories);
   const tabs = useTemplatesStore((s) => s.tabs);
   const templates = useTemplatesStore((s) => s.templates);
+  const loading = useTemplatesStore((s) => s.loading);
   const hydrate = useTemplatesStore((s) => s.hydrate);
 
   useEffect(() => {
@@ -59,5 +60,5 @@ export function useDesignCatalog() {
     [templates]
   );
 
-  return { categories, tabs, templates, countByCategory, tabsFor, templatesFor, hydrate };
+  return { categories, tabs, templates, countByCategory, tabsFor, templatesFor, hydrate, loading };
 }

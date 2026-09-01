@@ -17,9 +17,14 @@ export const useTemplatesStore = create(
       tabs: [],
       templates: [],
       lastSyncedAt: null,
+      // True while the first fetch of this session is in flight — lets Explore
+      // show a loading skeleton instead of its "couldn't load" dead end before
+      // the first response has actually come back.
+      loading: true,
 
       // Pull the live (or bundled) design catalog and cache it. Cheap + idempotent.
       hydrate: async () => {
+        set({ loading: true });
         try {
           const payload = await fetchDesignCatalog();
           if (payload?.categories?.length) {
@@ -32,6 +37,8 @@ export const useTemplatesStore = create(
           }
         } catch {
           // keep the cached (or empty) catalog on network error
+        } finally {
+          set({ loading: false });
         }
       },
 

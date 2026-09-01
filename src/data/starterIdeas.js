@@ -14,7 +14,7 @@ import {
   updateFurnitureItem,
   setMaterials,
 } from '@/domain/floorplan';
-import { catalogById } from './catalog';
+import { useCatalogStore } from '@/store/useCatalogStore';
 
 // ---------------------------------------------------------------------------
 // Ideas — at least 10 per category, all furnished.
@@ -312,7 +312,7 @@ export function buildIdeaPlan(idea) {
     plan = addRoomRect(plan, x, y, w, h);
   }
   for (const [catalogId, fx, fy, r] of idea.items || []) {
-    const item = catalogById(catalogId);
+    const item = useCatalogStore.getState().byId(catalogId);
     if (!item) continue;
     plan = addFurnitureItem(plan, item, { x: fx * plan.width, y: fy * plan.length });
     const added = plan.furniture[plan.furniture.length - 1];

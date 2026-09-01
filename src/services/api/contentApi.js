@@ -11,3 +11,11 @@ export async function fetchHomeBanners() {
   const data = await request('/content/banners', { auth: false });
   return data?.banners ?? (Array.isArray(data) ? data : []);
 }
+
+// Help-center FAQs, admin-managed from the dashboard. Requires sign-in
+// (matches the backend's `verifyToken` gate on GET /content/faqs).
+export async function fetchFaqs() {
+  if (!isRemote()) return [];
+  const data = await request('/content/faqs');
+  return Array.isArray(data) ? data : (data?.faqs ?? []);
+}

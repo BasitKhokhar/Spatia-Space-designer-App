@@ -152,7 +152,7 @@ export function usePlayBilling({ plans = [], onEntitlementChange, onError, onSuc
     },
   });
 
-  const { connected, subscriptions, products, requestPurchase, finishTransaction, reconnect } = iap;
+  const { connected, subscriptions, products, requestPurchase, finishTransaction, reconnect, fetchProducts } = iap;
   finishRef.current = finishTransaction;
 
   useEffect(() => {
@@ -160,6 +160,38 @@ export function usePlayBilling({ plans = [], onEntitlementChange, onError, onSuc
       '| subs:', subscriptions.map((s) => ({ id: s.id, offers: (s.subscriptionOffers || s.subscriptionOfferDetailsAndroid || []).length })),
       '| products:', products.map((p) => ({ id: p.id, price: p.displayPrice || p.localizedPrice })));
   }, [connected, subscriptions, products]);
+
+  // Populate `subscriptions`/`products` as soon as the store connects, so the
+  // paywall/subscription screens can show live Play prices on first paint —
+  // without this, useIAP never queries the store until purchase() runs, and
+  // every card is stuck showing the static DB price. Must go through the
+  // hook's own `fetchProducts` (not the standalone `fetchProductsAsync` used
+  // at purchase time below) — only that one writes into the `subscriptions`/
+  // `products` state this hook returns.
+  useEffect(() => {
+    if (!connected || plans.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const subSkus = [...new Set(
+          plans.filter((p) => !isLifetimePlan(p) && p.playStoreProductId).map((p) => getPlaySku(p.playStoreProductId))
+        )];
+        const productSkus = [...new Set(
+          plans.filter((p) => isLifetimePlan(p) && p.playStoreProductId).map((p) => getPlaySku(p.playStoreProductId))
+        )];
+
+        if (subSkus.length) {
+          await fetchProducts({ skus: subSkus, type: 'subs' });
+        }
+        if (productSkus.length) {
+          await fetchProducts({ skus: productSkus, type: 'in-app' });
+        }
+      } catch (e) {
+        if (!cancelled) console.warn('[PlayBilling] product prefetch failed:', e?.code, e?.message);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [connected, plans, fetchProducts]);
 
   /**
    * Launch the Play billing sheet for a plan. `cycle` picks the base plan when

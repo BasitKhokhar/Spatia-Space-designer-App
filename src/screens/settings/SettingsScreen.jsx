@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Linking, View, ScrollView, Alert } from 'react-native';
+import { View, ScrollView } from 'react-native';
 
 import Screen from '@/components/ui/Screen';
 import Text from '@/components/ui/Text';
 import HeaderBar from '@/components/ui/HeaderBar';
 import ListRow, { RowDivider } from '@/components/ui/ListRow';
 import SegmentedControl from '@/components/ui/SegmentedControl';
+import ConfirmationModal from '@/components/ui/ConfirmationModal';
 import { useTheme } from '@/theme/useTheme';
 import { useSettingsStore } from '@/store/useSettingsStore';
 import { useCatalogStore } from '@/store/useCatalogStore';
@@ -101,16 +102,21 @@ export default function SettingsScreen({ navigation, route }) {
     ? (subscription.currentPlanCode || subscription.tier)
     : 'Free';
 
-  const confirmLogout = () =>
-    Alert.alert('Log out', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Log Out', style: 'destructive', onPress: logout },
-    ]);
+  const [logoutModal, setLogoutModal] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+  const [deleteModal, setDeleteModal] = useState(false);
 
-  const openLegalLink = (url) =>
-    Linking.openURL(url).catch(() =>
-      Alert.alert('Unable to open link', 'Please check your internet connection and try again.')
-    );
+  const handleLogout = async () => {
+    setLoggingOut(true);
+    try {
+      await logout();
+    } finally {
+      setLoggingOut(false);
+      setLogoutModal(false);
+    }
+  };
+
+  const openLegalPage = (url, title) => navigation.navigate(ROUTES.legalWebView, { url, title });
 
   return (
     <Screen edges={isTab ? ['top'] : ['top', 'bottom']}>
@@ -190,6 +196,8 @@ export default function SettingsScreen({ navigation, route }) {
           <RowDivider />
           <ListRow icon="help" label="Help & Support" onPress={() => navigation.navigate(ROUTES.help)} />
           <RowDivider />
+          <ListRow icon="help" label="FAQs" onPress={() => navigation.navigate(ROUTES.faqs)} />
+          <RowDivider />
           {showAdPrivacy ? (
             <>
               <ListRow
@@ -200,9 +208,9 @@ export default function SettingsScreen({ navigation, route }) {
               <RowDivider />
             </>
           ) : null}
-          <ListRow icon="shield" label="Privacy Policy" onPress={() => openLegalLink(LINKS.privacy)} />
+          <ListRow icon="shield" label="Privacy Policy" onPress={() => openLegalPage(LINKS.privacy, 'Privacy Policy')} />
           <RowDivider />
-          <ListRow icon="file" label="Terms & Conditions" onPress={() => openLegalLink(LINKS.terms)} />
+          <ListRow icon="file" label="Terms & Conditions" onPress={() => openLegalPage(LINKS.terms, 'Terms & Conditions')} />
         </Group>
 
         {__DEV__ ? (
@@ -218,7 +226,7 @@ export default function SettingsScreen({ navigation, route }) {
         ) : null}
 
         <Group title="DANGER ZONE" danger>
-          <ListRow icon="trash" label="Delete Account" danger onPress={() => navigation.navigate(ROUTES.deleteAccount)} />
+          <ListRow icon="trash" label="Delete Account" danger onPress={() => setDeleteModal(true)} />
         </Group>
 
         <Text
@@ -226,7 +234,7 @@ export default function SettingsScreen({ navigation, route }) {
           color="ink2"
           align="center"
           style={{ fontWeight: '700', paddingVertical: 8 }}
-          onPress={confirmLogout}
+          onPress={() => setLogoutModal(true)}
         >
           Log Out
         </Text>
@@ -234,6 +242,34 @@ export default function SettingsScreen({ navigation, route }) {
           HomePlanner v{APP_VERSION} (Build {BUILD_NUMBER})
         </Text>
       </ScrollView>
+
+      <ConfirmationModal
+        visible={logoutModal}
+        icon="logout"
+        title="Log out?"
+        message="You'll need to sign in again to access your projects."
+        confirmLabel="Log Out"
+        cancelLabel="Cancel"
+        danger
+        loading={loggingOut}
+        onConfirm={handleLogout}
+        onClose={() => setLogoutModal(false)}
+      />
+
+      <ConfirmationModal
+        visible={deleteModal}
+        icon="trash"
+        title="Delete your account?"
+        message="This will permanently erase your projects, credits and export history. This cannot be undone."
+        confirmLabel="Continue"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={() => {
+          setDeleteModal(false);
+          navigation.navigate(ROUTES.deleteAccount);
+        }}
+        onClose={() => setDeleteModal(false)}
+      />
     </Screen>
   );
 }

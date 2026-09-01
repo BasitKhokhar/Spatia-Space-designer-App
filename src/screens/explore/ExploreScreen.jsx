@@ -9,6 +9,7 @@ import NotEnoughCreditsModal from '@/components/feedback/NotEnoughCreditsModal';
 import CategoryRail from '@/components/design/CategoryRail';
 import TabPills from '@/components/design/TabPills';
 import DesignCard from '@/components/design/DesignCard';
+import ExploreSkeleton from '@/components/design/ExploreSkeleton';
 import { useTheme } from '@/theme/useTheme';
 import { useCreditsStore } from '@/store/useCreditsStore';
 import { useDesignCatalog } from '@/hooks/useDesignCatalog';
@@ -26,7 +27,7 @@ export default function ExploreScreen({ navigation }) {
   // showing (0 otherwise, so the layout is unchanged without ads).
   const tabPadding = useTabPadding(120);
   const balance = useCreditsStore((s) => s.balance);
-  const { categories, templates, countByCategory, tabsFor, templatesFor, hydrate } =
+  const { categories, templates, countByCategory, tabsFor, templatesFor, hydrate, loading } =
     useDesignCatalog();
   const { isLocked, openDesign, openingId, blocked, dismissBlocked } = useOpenDesign(navigation);
 
@@ -56,7 +57,17 @@ export default function ExploreScreen({ navigation }) {
   const category = categories.find((c) => c.key === categoryKey);
   const [featured, ...rest] = shown;
 
-  // Nothing cached and nothing fetched yet — the only real dead end here.
+  // First load, nothing cached yet — show the layout-matched skeleton rather
+  // than a dead end that hasn't actually failed.
+  if (loading && !templates.length) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
+        <ExploreSkeleton />
+      </SafeAreaView>
+    );
+  }
+
+  // Fetch settled and there is still nothing — the real dead end.
   if (!templates.length) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>

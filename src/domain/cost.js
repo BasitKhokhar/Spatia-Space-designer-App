@@ -1,14 +1,12 @@
-import { catalogById } from '@/data/catalog';
 import { useCatalogStore } from '@/store/useCatalogStore';
 
 // Live budget estimate: sum of catalog prices for every placed item.
-// Falls back to 0 for items whose catalog entry has no price.
+// Falls back to 0 for items whose catalog entry has no price (or hasn't
+// synced from the backend yet).
 export function estimateCost(plan) {
   if (!plan?.furniture?.length) return 0;
   return plan.furniture.reduce((sum, f) => {
-    // The LIVE catalog first: catalogById only knows the bundled seed, so every
-    // item an admin added from the dashboard priced at 0 in the budget estimate.
-    const item = useCatalogStore.getState().byId(f.catalogId) || catalogById(f.catalogId);
+    const item = useCatalogStore.getState().byId(f.catalogId);
     return sum + (item?.price || 0);
   }, 0);
 }

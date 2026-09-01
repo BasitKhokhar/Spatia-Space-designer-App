@@ -63,6 +63,10 @@ export const useProjectsStore = create(
       projects: [],
       activeProjectId: null,
       exportsMade: 0,
+      // True while the first server sync of this session is in flight — lets a
+      // cold start (no local cache yet) show a loading skeleton instead of a
+      // misleading "No projects yet" before the real list has arrived.
+      loading: isRemote(),
       // Server ids of projects the user deleted locally while the remote delete
       // could not be reached (offline / server error). Retried by
       // `flushPendingDeletes` once connectivity returns so the live DB doesn't
@@ -72,16 +76,19 @@ export const useProjectsStore = create(
       // Load the current user's projects from the server (no-op when local-first).
       hydrate: async () => {
         if (!isRemote()) return;
-        // Clear any deletes that were queued while offline before pulling the
-        // authoritative list (otherwise a deleted project could reappear), then
-        // backfill server ids for any locally-created projects that never linked.
-        await get().flushPendingDeletes();
-        await get().syncUnreconciled();
+        set({ loading: true });
         try {
+          // Clear any deletes that were queued while offline before pulling the
+          // authoritative list (otherwise a deleted project could reappear), then
+          // backfill server ids for any locally-created projects that never linked.
+          await get().flushPendingDeletes();
+          await get().syncUnreconciled();
           const list = await projectsApi.list();
           set({ projects: list.map(ensureFloors) });
         } catch {
           // keep cached projects on network error
+        } finally {
+          set({ loading: false });
         }
       },
 

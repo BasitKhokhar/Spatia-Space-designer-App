@@ -42,6 +42,11 @@ export const ROUTES = {
   // Settings
   settings: 'Settings',
   help: 'HelpSupport',
+  contactSupport: 'ContactSupport',
+  faqs: 'Faqs',
   deleteAccount: 'DeleteAccount',
   offlineResources: 'OfflineResources',
+  // In-app browser for external pages (Privacy Policy, Terms, etc.) —
+  // takes { url, title } route params.
+  legalWebView: 'LegalWebView',
 };

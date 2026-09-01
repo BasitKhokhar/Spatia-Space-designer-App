@@ -1,17 +1,27 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { View, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import Text from '@/components/ui/Text';
+import SegmentedControl from '@/components/ui/SegmentedControl';
 import ProjectCard from '@/components/project/ProjectCard';
+import ProjectsSkeleton from '@/components/project/ProjectsSkeleton';
+import AiPolicyCard from '@/components/project/AiPolicyCard';
 import EmptyState from '@/components/feedback/EmptyState';
 import { CoverArt } from '@/components/graphics/CoverImage';
 import ConfirmDeleteModal from '@/components/feedback/ConfirmDeleteModal';
+import ReportContentSheet from '@/components/sheets/ReportContentSheet';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { useProjectsStore } from '@/store/useProjectsStore';
 import { ROUTES } from '@/navigation/routes';
 import { useTabPadding } from '@/store/useAdLayout';
+
+const TABS = [
+  { value: 'all', label: 'All' },
+  { value: 'ai', label: 'AI' },
+  { value: 'other', label: 'Other' },
+];
 
 // Every project the user has, newest edit first. Home only shows the latest few
 // — this is the complete list.
@@ -21,16 +31,35 @@ export default function ProjectsScreen({ navigation }) {
   // showing (0 otherwise, so the layout is unchanged without ads).
   const tabPadding = useTabPadding(120);
   const projects = useProjectsStore((s) => s.projects);
+  const loading = useProjectsStore((s) => s.loading);
   const setActive = useProjectsStore((s) => s.setActive);
   const deleteProject = useProjectsStore((s) => s.deleteProject);
 
   // Project pending deletion (drives the confirmation modal). Null when closed.
   const [pendingDelete, setPendingDelete] = useState(null);
 
+  // All / AI / Other filter, client-side over the same list Home summarizes.
+  const [tab, setTab] = useState('all');
+
+  // AI-report sheet, reused as-is from Settings > Help & Support — reporting
+  // a design shouldn't need two different implementations.
+  const [reportingProject, setReportingProject] = useState(null);
+  const reportSheetRef = useRef(null);
+  const startReport = (p) => {
+    setReportingProject(p);
+    setTimeout(() => reportSheetRef.current?.present(), 60);
+  };
+
   const sorted = useMemo(
     () => [...projects].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
     [projects]
   );
+
+  const filtered = useMemo(() => {
+    if (tab === 'ai') return sorted.filter((p) => p.source === 'ai');
+    if (tab === 'other') return sorted.filter((p) => p.source !== 'ai');
+    return sorted;
+  }, [sorted, tab]);
 
   const open = (p) => {
     setActive(p.id);
@@ -43,6 +72,27 @@ export default function ProjectsScreen({ navigation }) {
   };
 
   const startNew = () => navigation.navigate(ROUTES.newProject);
+
+  const TAB_EMPTY = {
+    all: {
+      title: 'No projects yet',
+      message: 'Start a floor plan from scratch, pick a ready-made design, or let AI draw one for you.',
+      actionTitle: 'New Project',
+      onAction: startNew,
+    },
+    ai: {
+      title: 'No AI designs yet',
+      message: 'Generate a design with AI and it will show up here.',
+      actionTitle: 'Try AI Design',
+      onAction: () => navigation.navigate(ROUTES.aiWizard),
+    },
+    other: {
+      title: 'No other designs yet',
+      message: 'Projects you build manually or from a template show up here.',
+      actionTitle: 'New Project',
+      onAction: startNew,
+    },
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top']}>
@@ -87,7 +137,11 @@ export default function ProjectsScreen({ navigation }) {
         </Pressable>
       </View>
 
-      {projects.length === 0 ? (
+      {loading && projects.length === 0 ? (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tabPadding }}>
+          <ProjectsSkeleton />
+        </ScrollView>
+      ) : projects.length === 0 ? (
         <EmptyState
           title="No projects yet"
           message="Start a floor plan from scratch, pick a ready-made design, or let AI draw one for you."
@@ -99,25 +153,48 @@ export default function ProjectsScreen({ navigation }) {
         />
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: tabPadding }}>
-          <View
-            style={{
-              flexDirection: 'row',
-              flexWrap: 'wrap',
-              justifyContent: 'space-between',
-              paddingHorizontal: 24,
-              marginTop: 20,
-              gap: 14,
-            }}
-          >
-            {sorted.map((p) => (
-              <ProjectCard
-                key={p.id}
-                project={p}
-                onPress={() => open(p)}
-                onDelete={() => setPendingDelete(p)}
-                style={{ width: '47%' }}
+          <SegmentedControl
+            options={TABS}
+            value={tab}
+            onChange={setTab}
+            style={{ marginHorizontal: 24, marginTop: 18 }}
+          />
+
+          <View style={{ paddingHorizontal: 24, marginTop: 18 }}>
+            {tab === 'ai' ? (
+              <AiPolicyCard onContactSupport={() => navigation.navigate(ROUTES.contactSupport)} />
+            ) : null}
+
+            {filtered.length === 0 ? (
+              <EmptyState
+                title={TAB_EMPTY[tab].title}
+                message={TAB_EMPTY[tab].message}
+                actionTitle={TAB_EMPTY[tab].actionTitle}
+                actionIcon="arrow-right"
+                onAction={TAB_EMPTY[tab].onAction}
+                style={{ marginTop: 12 }}
               />
-            ))}
+            ) : (
+              <View
+                style={{
+                  flexDirection: 'row',
+                  flexWrap: 'wrap',
+                  justifyContent: 'space-between',
+                  gap: 14,
+                }}
+              >
+                {filtered.map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    onPress={() => open(p)}
+                    onDelete={() => setPendingDelete(p)}
+                    onReport={tab === 'ai' ? () => startReport(p) : undefined}
+                    style={{ width: '47%' }}
+                  />
+                ))}
+              </View>
+            )}
           </View>
         </ScrollView>
       )}
@@ -133,6 +210,12 @@ export default function ProjectsScreen({ navigation }) {
         confirmLabel="Delete"
         onConfirm={confirmDelete}
         onCancel={() => setPendingDelete(null)}
+      />
+
+      <ReportContentSheet
+        ref={reportSheetRef}
+        project={reportingProject}
+        onClose={() => setReportingProject(null)}
       />
     </SafeAreaView>
   );

@@ -2,25 +2,19 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
 import { zustandMMKVStorage } from './storage';
-import { CATALOG, CATEGORIES as BUNDLED_CATEGORY_NAMES, itemCost } from '@/data/catalog';
+import { itemCost } from '@/data/catalog';
 import { isRemote } from '@/services/api/client';
 import { fetchCatalog } from '@/services/api/catalogApi';
 import { creditsApi } from '@/services/api/creditsApi';
 import { useUnlocksStore } from './useUnlocksStore';
 
-// Bundled fallback categories as objects (so online + offline share one shape).
-// The bundled export is a string array led by the synthetic 'All' bucket.
-const BUNDLED_CATEGORIES = BUNDLED_CATEGORY_NAMES
-  .filter((n) => n !== 'All')
-  .map((name, i) => ({ name, sortOrder: i, icon: null, group: null }));
-
 // Normalize whatever /catalog returns (objects, or a legacy string array) into
 // category objects, and ensure items are a plain array.
 function normalize(payload) {
-  const items = Array.isArray(payload?.items) ? payload.items : CATALOG;
+  const items = Array.isArray(payload?.items) ? payload.items : [];
   let categories = payload?.categories;
   if (!Array.isArray(categories) || categories.length === 0) {
-    categories = BUNDLED_CATEGORIES;
+    categories = [];
   } else if (typeof categories[0] === 'string') {
     categories = categories
       .filter((n) => n !== 'All')
@@ -59,17 +53,22 @@ function mergeDelta(current, changed, deletedSlugs) {
   return merged;
 }
 
-// Dynamic catalog. Online it mirrors the admin-managed backend catalog (fetched
-// via GET /catalog) and is cached to MMKV so the app keeps working offline; the
-// bundled src/data/catalog.js is the first-run / offline seed. `kind` is the
-// universal render join-key and is preserved verbatim from either source.
+// Dynamic catalog. Mirrors the admin-managed backend catalog (fetched via
+// GET /catalog) and is cached to MMKV so the app keeps working offline once it
+// has synced at least once — there is no bundled duplicate of the catalog data
+// itself. `kind` is the universal render join-key, preserved verbatim from the
+// server.
 export const useCatalogStore = create(
   persist(
     (set, get) => ({
-      items: CATALOG,
-      categories: BUNDLED_CATEGORIES,
+      items: [],
+      categories: [],
       lastSyncedAt: null,   // local wall clock, informational
       syncedAt: null,       // SERVER cursor for the next ?since= delta request
+      // True while the first sync of this session is in flight — lets the
+      // catalog UI show a loading state instead of "no items" before the very
+      // first fetch (or MMKV rehydrate) has landed.
+      loading: isRemote(),
       _inflight: null,      // dedupes concurrent hydrate() calls (not persisted)
 
       // Pull the live catalog + this user's unlocks (no-op offline / local-first).
@@ -82,6 +81,7 @@ export const useCatalogStore = create(
         if (running) return running;
 
         const run = (async () => {
+          set({ loading: true });
           try {
             // syncedAt is the SERVER's clock, so a device with a skewed clock
             // cannot silently skip rows. Falls back to a full fetch when we've
@@ -114,10 +114,10 @@ export const useCatalogStore = create(
               }
             }
           } catch (err) {
-            // keep the cached (or bundled) catalog on network error
+            // keep the cached catalog on network error
             console.warn('[catalog] hydrate failed, keeping cached catalog', err?.message || err);
           } finally {
-            set({ _inflight: null });
+            set({ _inflight: null, loading: false });
           }
           // Merge the server's permanent unlock records into the local store so
           // previously-unlocked items stay unlocked across devices/reinstalls.

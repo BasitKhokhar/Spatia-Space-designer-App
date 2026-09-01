@@ -19,6 +19,9 @@ import {
   periodLabel,
   isLifetimePlan,
   playManageSubscriptionUrl,
+  getPlanOffers,
+  savingsPercent,
+  perMonthDisplayPrice,
   FALLBACK_PLANS,
 } from '@/services/billing/playBilling';
 
@@ -27,6 +30,27 @@ function formatDate(value) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+// Human-friendly countdown to a date — "12 days left" / "4 hours left" /
+// "30 minutes left" — so the active-plan card reads like a live subscription
+// status rather than a static date.
+function getRemainingLabel(value) {
+  if (!value) return null;
+  const diff = new Date(value).getTime() - Date.now();
+  if (Number.isNaN(diff)) return null;
+  if (diff <= 0) return 'Expired';
+
+  const DAY = 1000 * 60 * 60 * 24;
+  const HOUR = 1000 * 60 * 60;
+  const MIN = 1000 * 60;
+  const days = Math.floor(diff / DAY);
+  const hours = Math.floor((diff % DAY) / HOUR);
+  const minutes = Math.floor((diff % HOUR) / MIN);
+
+  if (days >= 1) return `${days} ${days === 1 ? 'day' : 'days'} left`;
+  if (hours >= 1) return `${hours} ${hours === 1 ? 'hour' : 'hours'} left`;
+  return `${Math.max(minutes, 1)} ${minutes === 1 ? 'minute' : 'minutes'} left`;
 }
 
 export default function SubscriptionScreen({ navigation }) {
@@ -38,6 +62,15 @@ export default function SubscriptionScreen({ navigation }) {
   const [active, setActive] = useState(null);
   const [serverPlans, setServerPlans] = useState(null);
   const [loading, setLoading] = useState(isRemote());
+  // Chosen billing cycle per plan code, for plans whose Play Console
+  // subscription offers more than one (e.g. monthly vs. yearly).
+  const [selectedCycles, setSelectedCycles] = useState({});
+  // Celebration overlay shown right after a purchase verifies successfully.
+  const [showSuccessOverlay, setShowSuccessOverlay] = useState(false);
+  const [successPlanName, setSuccessPlanName] = useState(null);
+  // Bumped every 30s purely to force the "X days/hours left" countdown to
+  // re-render while this screen stays open.
+  const [, setNowTick] = useState(0);
 
   const loadAll = () => {
     if (!isRemote()) return;
@@ -60,6 +93,11 @@ export default function SubscriptionScreen({ navigation }) {
 
   useEffect(() => { loadAll(); }, []);
 
+  useEffect(() => {
+    const id = setInterval(() => setNowTick((n) => n + 1), 30000);
+    return () => clearInterval(id);
+  }, []);
+
   const basePlans = useMemo(() => {
     const list = (serverPlans && serverPlans.length ? serverPlans : FALLBACK_PLANS)
       .filter((p) => p.isActive !== false)
@@ -75,7 +113,10 @@ export default function SubscriptionScreen({ navigation }) {
       loadAll();
     },
     onError: (message) => Alert.alert('Purchase', message),
-    onSuccess: () => {},
+    onSuccess: (plan) => {
+      setSuccessPlanName(plan?.name || 'Premium');
+      setShowSuccessOverlay(true);
+    },
   });
 
   const plans = useMemo(
@@ -97,6 +138,7 @@ export default function SubscriptionScreen({ navigation }) {
   const lifetime = currentPlan ? isLifetimePlan(currentPlan) : false;
   const autoRenewing = active?.playStoreAutoRenewing === true;
   const expiryLabel = formatDate(status?.subscriptionExpiry);
+  const remainingLabel = !lifetime ? getRemainingLabel(status?.subscriptionExpiry) : null;
   const isGooglePurchase = active?.paymentProvider === 'GOOGLE_PLAY';
 
   const busy = billingBusy;
@@ -112,7 +154,7 @@ export default function SubscriptionScreen({ navigation }) {
     Linking.openURL(playManageSubscriptionUrl(sku));
   };
 
-  const subscribe = async (plan) => {
+  const subscribe = async (plan, cycle) => {
     if (plan.tier === 'free' || plan.tier === tier) return;
 
     if (!plan.playStoreProductId) {
@@ -137,7 +179,7 @@ export default function SubscriptionScreen({ navigation }) {
       return;
     }
 
-    await purchase(plan);
+    await purchase(plan, cycle);
   };
 
   const onRestore = async () => {
@@ -193,6 +235,14 @@ export default function SubscriptionScreen({ navigation }) {
                       ? `${autoRenewing ? 'Renews' : 'Expires'} on ${expiryLabel}`
                       : 'Active subscription'}
                 </Text>
+                {!lifetime && remainingLabel ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+                    <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#fff' }} />
+                    <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 12, fontFamily: 'Manrope_600SemiBold' }}>
+                      {remainingLabel}
+                    </Text>
+                  </View>
+                ) : null}
 
                 {status?.licenseKey ? (
                   <Pressable
@@ -246,66 +296,172 @@ export default function SubscriptionScreen({ navigation }) {
               Live pricing from Google Play.
             </Text>
 
-            <View style={{ gap: 12 }}>
+            <View style={{ gap: 16 }}>
               {plans.map((plan) => {
+                const isFree = plan.tier === 'free';
                 const isCurrent = plan.tier === tier && (plan.tier !== 'free' || tier === 'free');
                 const highlight = plan.code === 'BASIC';
+
+                // Live billing cycles Play Console actually has configured for
+                // this plan's subscription (e.g. monthly + yearly). Empty
+                // when the store hasn't returned that product yet.
+                const offers = isFree ? [] : getPlanOffers(plan, storeSubs);
+                const selectedCycle = selectedCycles[plan.code] || offers[0]?.cycle || 'monthly';
+                const selectedOffer = offers.find((o) => o.cycle === selectedCycle) || offers[0] || null;
+
+                // Until Play returns live offers, fall back to the DB's single
+                // monthly price/period — same figure the app has always shown.
+                const fallbackOffer = {
+                  cycle: 'monthly',
+                  label: 'Monthly',
+                  months: plan.durationDays ? Math.max(1, Math.round(plan.durationDays / 30)) : 1,
+                  priceAmount: plan.price ?? null,
+                  displayPrice: plan.displayPrice || (plan.price ? `$${plan.price}` : 'Free'),
+                };
+                const activeOffer = isFree ? null : (selectedOffer || fallbackOffer);
+
+                // Big headline price is always the per-month equivalent, so a
+                // monthly, 6-month and yearly cycle are directly comparable —
+                // the actual total for the cycle is spelled out just below.
+                const perMonth = activeOffer ? perMonthDisplayPrice(activeOffer) : null;
+                const showTotalLine = activeOffer && activeOffer.months > 1;
+                const savePct = activeOffer && offers.length > 1 ? savingsPercent(offers, activeOffer) : 0;
+
+                const planIconName = plan.tier === 'premium' ? 'gem' : plan.tier === 'basic' ? 'shield' : 'star';
+
                 return (
                   <View
                     key={plan.code}
-                    style={{
-                      borderWidth: highlight ? 1.5 : 1,
-                      borderColor: highlight ? colors.accent : colors.lineSoft,
-                      backgroundColor: highlight ? colors.accentTintBg : colors.surface,
-                      borderRadius: radius.lg,
-                      padding: 16,
-                    }}
+                    style={[
+                      {
+                        borderRadius: radius.xl,
+                        overflow: 'hidden',
+                        backgroundColor: colors.surface,
+                        borderWidth: highlight ? 2 : 1,
+                        borderColor: highlight ? colors.accent : colors.lineSoft,
+                      },
+                      highlight ? shadows.accent : shadows.e2,
+                    ]}
                   >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Text variant="title">{plan.name}</Text>
-                        {highlight ? (
-                          <View style={{ backgroundColor: colors.accent, borderRadius: 7, paddingHorizontal: 8, paddingVertical: 3 }}>
-                            <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'Manrope_800ExtraBold', letterSpacing: 0.5 }}>POPULAR</Text>
-                          </View>
-                        ) : null}
-                      </View>
-                      <Text variant="title">
-                        {plan.displayPrice || (plan.price ? `$${plan.price}` : 'Free')}
-                        <Text variant="caption" color="ink3">{plan.period}</Text>
-                      </Text>
-                    </View>
-
-                    {plan.description ? (
-                      <Text variant="bodySm" color="ink3" style={{ marginTop: 4 }}>{plan.description}</Text>
+                    {highlight ? (
+                      <LinearGradient
+                        colors={[accent.a400, accent.a700]}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={{ paddingVertical: 7, alignItems: 'center' }}
+                      >
+                        <Text style={{ color: '#fff', fontSize: 11, fontFamily: 'Manrope_800ExtraBold', letterSpacing: 0.6 }}>
+                          MOST POPULAR
+                        </Text>
+                      </LinearGradient>
                     ) : null}
 
-                    <View style={{ marginTop: 12, gap: 7 }}>
-                      {plan.featureList.map((f) => (
-                        <View key={f} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Icon name="check" size={15} color={colors.success} strokeWidth={2.4} />
-                          <Text variant="bodySm" color="ink2">{f}</Text>
+                    <View style={{ padding: 18 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                        <View
+                          style={{
+                            width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                            backgroundColor: highlight ? colors.accentSoft : colors.surface2,
+                          }}
+                        >
+                          <Icon name={planIconName} size={19} color={colors.accent} strokeWidth={2} />
                         </View>
-                      ))}
-                    </View>
+                        <View style={{ flex: 1 }}>
+                          <Text variant="title">{plan.name}</Text>
+                          {plan.description ? (
+                            <Text variant="bodySm" color="ink3" numberOfLines={2}>{plan.description}</Text>
+                          ) : null}
+                        </View>
+                      </View>
 
-                    <Pressable
-                      onPress={() => subscribe(plan)}
-                      disabled={isCurrent || plan.tier === 'free' || busy}
-                      style={{
-                        marginTop: 14,
-                        height: 46,
-                        borderRadius: radius.md,
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        opacity: busy && !isCurrent ? 0.6 : 1,
-                        backgroundColor: isCurrent || plan.tier === 'free' ? colors.surface2 : colors.accent,
-                      }}
-                    >
-                      <Text style={{ fontFamily: 'Manrope_700Bold', fontSize: 14.5, color: isCurrent || plan.tier === 'free' ? colors.ink3 : '#fff' }}>
-                        {isCurrent ? 'Current plan' : plan.tier === 'free' ? 'Included' : `Get ${plan.name}`}
-                      </Text>
-                    </Pressable>
+                      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 5, marginTop: 18 }}>
+                        <Text style={{ fontSize: 32, fontFamily: 'Sora_800ExtraBold', color: colors.ink, lineHeight: 36 }}>
+                          {isFree ? 'Free' : perMonth}
+                        </Text>
+                        {!isFree ? (
+                          <Text variant="bodySm" color="ink3" style={{ marginBottom: 6 }}>/mo</Text>
+                        ) : null}
+                      </View>
+
+                      {showTotalLine ? (
+                        <Text variant="caption" color="ink3" style={{ marginTop: 3 }}>
+                          {`Billed ${activeOffer.displayPrice} every ${activeOffer.label.toLowerCase()}`}
+                          {savePct > 0 ? ` · Save ${savePct}%` : ''}
+                        </Text>
+                      ) : null}
+
+                      {offers.length > 1 ? (
+                        <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                          {offers.map((offer) => {
+                            const isActiveCycle = offer.cycle === selectedCycle;
+                            const offerSavePct = savingsPercent(offers, offer);
+                            return (
+                              <Pressable
+                                key={offer.cycle}
+                                onPress={() => setSelectedCycles((prev) => ({ ...prev, [plan.code]: offer.cycle }))}
+                                style={{
+                                  flex: 1,
+                                  alignItems: 'center',
+                                  paddingVertical: 8,
+                                  borderRadius: radius.md,
+                                  borderWidth: 1.5,
+                                  borderColor: isActiveCycle ? colors.accent : colors.lineSoft,
+                                  backgroundColor: isActiveCycle ? colors.accent : 'transparent',
+                                }}
+                              >
+                                {offerSavePct > 0 ? (
+                                  <Text style={{ fontSize: 9.5, fontFamily: 'Manrope_800ExtraBold', color: isActiveCycle ? '#fff' : colors.success, marginBottom: 1 }}>
+                                    SAVE {offerSavePct}%
+                                  </Text>
+                                ) : null}
+                                <Text style={{ fontSize: 12.5, fontFamily: 'Manrope_700Bold', color: isActiveCycle ? '#fff' : colors.ink2 }}>
+                                  {offer.label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      ) : null}
+
+                      <View style={{ height: 1, backgroundColor: colors.lineSoft, marginVertical: 16 }} />
+
+                      <View style={{ gap: 10 }}>
+                        {plan.featureList.map((f) => (
+                          <View key={f} style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                            <View style={{ width: 20, height: 20, borderRadius: 6, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' }}>
+                              <Icon name="check" size={12} color={colors.accent} strokeWidth={2.8} />
+                            </View>
+                            <Text variant="bodySm" color="ink2" style={{ flex: 1 }}>{f}</Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      {isCurrent || isFree ? (
+                        <View
+                          style={{
+                            marginTop: 18, height: 48, borderRadius: radius.md,
+                            alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface2,
+                          }}
+                        >
+                          <Text style={{ fontFamily: 'Manrope_700Bold', fontSize: 14.5, color: colors.ink3 }}>
+                            {isCurrent ? 'Current plan' : 'Included'}
+                          </Text>
+                        </View>
+                      ) : (
+                        <Pressable onPress={() => subscribe(plan, selectedOffer?.cycle)} disabled={busy} style={{ marginTop: 18 }}>
+                          <LinearGradient
+                            colors={[accent.a400, accent.a700]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={{ height: 48, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', opacity: busy ? 0.6 : 1 }}
+                          >
+                            <Text style={{ color: '#fff', fontFamily: 'Manrope_700Bold', fontSize: 14.5 }}>
+                              Get {plan.name}
+                            </Text>
+                          </LinearGradient>
+                        </Pressable>
+                      )}
+                    </View>
                   </View>
                 );
               })}
@@ -323,6 +479,63 @@ export default function SubscriptionScreen({ navigation }) {
           </>
         )}
       </ScrollView>
+
+      {busy ? (
+        <View
+          pointerEvents="auto"
+          style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            backgroundColor: colors.overlay, alignItems: 'center', justifyContent: 'center', zIndex: 50,
+          }}
+        >
+          <View
+            style={[
+              { backgroundColor: colors.surface, borderRadius: radius.xl, padding: 28, alignItems: 'center', minWidth: 200 },
+              shadows.e3,
+            ]}
+          >
+            <ActivityIndicator color={colors.accent} size="large" />
+            <Text variant="bodySm" style={{ marginTop: 14, fontFamily: 'Manrope_700Bold' }}>
+              Processing your purchase…
+            </Text>
+            <Text variant="caption" color="ink3" align="center" style={{ marginTop: 4 }}>
+              Confirming with Google Play. This only takes a moment.
+            </Text>
+          </View>
+        </View>
+      ) : null}
+
+      {showSuccessOverlay ? (
+        <View
+          style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 60,
+          }}
+        >
+          <LinearGradient
+            colors={[accent.a400, accent.a700]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}
+          >
+            <View style={{ width: 84, height: 84, borderRadius: 42, backgroundColor: 'rgba(255,255,255,0.2)', alignItems: 'center', justifyContent: 'center', marginBottom: 22 }}>
+              <Icon name="gem" size={38} color="#fff" strokeWidth={1.8} />
+            </View>
+            <Text style={{ color: '#fff', fontSize: 24, fontFamily: 'Sora_800ExtraBold', textAlign: 'center' }}>
+              {successPlanName ? `${successPlanName} Activated!` : 'Plan Activated!'}
+            </Text>
+            <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 14.5, fontFamily: 'Manrope_600SemiBold', textAlign: 'center', marginTop: 12, lineHeight: 21 }}>
+              {`Congratulations! Your "${successPlanName || 'Premium'}" plan is now active. All its features are unlocked.`}
+            </Text>
+
+            <Pressable
+              onPress={() => setShowSuccessOverlay(false)}
+              style={{ marginTop: 30, height: 50, minWidth: 200, borderRadius: radius.md, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 }}
+            >
+              <Text style={{ color: accent.a700, fontSize: 15, fontFamily: 'Manrope_800ExtraBold' }}>Awesome, thanks!</Text>
+            </Pressable>
+          </LinearGradient>
+        </View>
+      ) : null}
     </Screen>
   );
 }

@@ -19,6 +19,7 @@ function unwrap(json) {
 }
 
 async function rawRequest(path, { method, headers, body }) {
+  console.log(`[api] -> ${method} ${path}`, body ?? '');
   const res = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
@@ -30,6 +31,7 @@ async function rawRequest(path, { method, headers, body }) {
   } catch {
     // no/invalid JSON body
   }
+  console.log(`[api] <- ${res.status} ${method} ${path}`, json ?? '(no body)');
   return { res, json };
 }
 

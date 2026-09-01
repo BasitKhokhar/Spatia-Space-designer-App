@@ -10,42 +10,11 @@ import Icon from '@/components/icons/Icon';
 import ReportContentSheet from '@/components/sheets/ReportContentSheet';
 import { useTheme } from '@/theme/useTheme';
 import { useProjectsStore } from '@/store/useProjectsStore';
-import { FAQS } from '@/data/faqs';
+import { ROUTES } from '@/navigation/routes';
 import { LINKS } from '@/constants/links';
-
-function FaqItem({ item, open, onToggle }) {
-  const { colors, radius } = useTheme();
-  return (
-    <Pressable
-      onPress={onToggle}
-      style={{
-        backgroundColor: open ? colors.accentTintBg : colors.surface,
-        borderWidth: open ? 1.5 : 1,
-        borderColor: open ? colors.accent : colors.lineSoft,
-        borderRadius: radius.md,
-        padding: 16,
-      }}
-    >
-      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <Text variant="bodySm" style={{ fontWeight: '700', flex: 1 }}>
-          {item.q}
-        </Text>
-        <Text style={{ color: open ? colors.accent : colors.ink3, fontWeight: '800', fontSize: 18 }}>
-          {open ? '−' : '+'}
-        </Text>
-      </View>
-      {open ? (
-        <Text variant="bodySm" color="ink2" style={{ marginTop: 10, lineHeight: 20 }}>
-          {item.a}
-        </Text>
-      ) : null}
-    </Pressable>
-  );
-}
 
 export default function HelpSupportScreen({ navigation }) {
   const { colors, radius } = useTheme();
-  const [openIndex, setOpenIndex] = useState(0);
   const [query, setQuery] = useState('');
 
   // Reporting AI content, reachable at any time.
@@ -91,6 +60,42 @@ export default function HelpSupportScreen({ navigation }) {
             </View>
             <Icon name="chevron-right" size={16} color="#ADA79B" strokeWidth={2} />
           </LinearGradient>
+        </Pressable>
+
+        <Pressable
+          onPress={() => navigation.navigate(ROUTES.contactSupport)}
+          style={({ pressed }) => ({
+            marginTop: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 14,
+            padding: 16,
+            borderRadius: radius.xl,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.lineSoft,
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <View
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: radius.md,
+              backgroundColor: colors.accentSoft,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Icon name="mail" size={21} color={colors.accent} strokeWidth={1.9} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text variant="titleSm">Submit a Request</Text>
+            <Text variant="bodySm" color="ink3" style={{ marginTop: 2 }}>
+              Contact support with a specific issue or question
+            </Text>
+          </View>
+          <Icon name="chevron-right" size={16} color={colors.ink3} strokeWidth={2} />
         </Pressable>
 
         {/* Report AI content */}
@@ -184,14 +189,41 @@ export default function HelpSupportScreen({ navigation }) {
           </View>
         ) : null}
 
-        <Text variant="titleSm" style={{ marginTop: 26, marginBottom: 14 }}>
-          Frequently asked
-        </Text>
-        <View style={{ gap: 10 }}>
-          {FAQS.map((item, i) => (
-            <FaqItem key={item.q} item={item} open={openIndex === i} onToggle={() => setOpenIndex(openIndex === i ? -1 : i)} />
-          ))}
-        </View>
+        <Pressable
+          onPress={() => navigation.navigate(ROUTES.faqs)}
+          style={({ pressed }) => ({
+            marginTop: 22,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 14,
+            padding: 16,
+            borderRadius: radius.xl,
+            backgroundColor: colors.surface,
+            borderWidth: 1,
+            borderColor: colors.lineSoft,
+            opacity: pressed ? 0.85 : 1,
+          })}
+        >
+          <View
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: radius.md,
+              backgroundColor: colors.accentSoft,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Icon name="help" size={21} color={colors.accent} strokeWidth={1.9} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text variant="titleSm">Frequently asked questions</Text>
+            <Text variant="bodySm" color="ink3" style={{ marginTop: 2 }}>
+              Answers to common questions
+            </Text>
+          </View>
+          <Icon name="chevron-right" size={16} color={colors.ink3} strokeWidth={2} />
+        </Pressable>
       </ScrollView>
 
       <ReportContentSheet

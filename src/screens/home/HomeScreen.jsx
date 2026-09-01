@@ -9,6 +9,7 @@ import SectionHeader from '@/components/ui/SectionHeader';
 import AiHeroBanner from '@/components/home/AiHeroBanner';
 import QuickStartRow from '@/components/home/QuickStartRow';
 import RecentProjectsRail from '@/components/home/RecentProjectsRail';
+import RecentProjectsSkeleton from '@/components/home/RecentProjectsSkeleton';
 import UpgradeBanner from '@/components/home/UpgradeBanner';
 import EmptyState from '@/components/feedback/EmptyState';
 import { CoverArt } from '@/components/graphics/CoverImage';
@@ -67,6 +68,7 @@ export default function HomeScreen({ navigation }) {
   const balance = useCreditsStore((s) => s.balance);
   const tier = useCreditsStore((s) => s.tier);
   const projects = useProjectsStore((s) => s.projects);
+  const projectsLoading = useProjectsStore((s) => s.loading);
   const setActive = useProjectsStore((s) => s.setActive);
   const deleteProject = useProjectsStore((s) => s.deleteProject);
   const createProject = useProjectsStore((s) => s.createProject);
@@ -166,7 +168,12 @@ export default function HomeScreen({ navigation }) {
           <QuickStartRow onBlank={startBlank} onTemplates={browseTemplates} style={{ marginTop: 16 }} />
         </View>
 
-        {projects.length === 0 ? (
+        {projectsLoading && projects.length === 0 ? (
+          <>
+            <SectionHeader title="Recent Projects" style={{ paddingHorizontal: 24, marginTop: 28 }} />
+            <RecentProjectsSkeleton style={{ marginTop: 16 }} />
+          </>
+        ) : projects.length === 0 ? (
           <EmptyState
             title="No projects yet"
             message="Your designs will show up here. Start your first floor plan to bring a room to life."

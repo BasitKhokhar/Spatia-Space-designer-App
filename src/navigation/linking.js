@@ -20,6 +20,8 @@ export const linking = {
       [ROUTES.earnCredits]: 'credits',
       [ROUTES.subscription]: 'subscription',
       [ROUTES.help]: 'help',
+      [ROUTES.contactSupport]: 'contact-support',
+      [ROUTES.faqs]: 'faqs',
       [ROUTES.deleteAccount]: 'settings/delete',
     },
   },

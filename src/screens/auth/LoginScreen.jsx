@@ -5,36 +5,11 @@ import Screen from '@/components/ui/Screen';
 import Text from '@/components/ui/Text';
 import Input from '@/components/ui/Input';
 import Button from '@/components/ui/Button';
-import Icon from '@/components/icons/Icon';
 import { LogoTile } from '@/components/graphics/Logo';
 import { useTheme } from '@/theme/useTheme';
 import { useAuthStore } from '@/store/useAuthStore';
-import { signInWithGoogle, signInWithApple } from '@/services/auth/social';
+import { signInWithGoogle } from '@/services/auth/social';
 import { ROUTES } from '@/navigation/routes';
-
-function SocialButton({ icon, label, onPress }) {
-  const { colors, radius, fonts } = useTheme();
-  return (
-    <Pressable
-      onPress={onPress}
-      style={{
-        flex: 1,
-        height: 52,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.line,
-        borderRadius: radius.md,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 10,
-      }}
-    >
-      <Icon name={icon} size={18} color={colors.ink} />
-      <Text style={{ fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink }}>{label}</Text>
-    </Pressable>
-  );
-}
 
 export default function LoginScreen({ navigation, route }) {
   const { colors, isDark } = useTheme();
@@ -43,6 +18,7 @@ export default function LoginScreen({ navigation, route }) {
   const [email, setEmail] = useState(route?.params?.email ?? 'alex@studio.com');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const onLogin = async () => {
     setLoading(true);
@@ -56,9 +32,10 @@ export default function LoginScreen({ navigation, route }) {
     }
   };
 
-  const onSocial = async (provider) => {
+  const onGoogleLogin = async () => {
+    setGoogleLoading(true);
     try {
-      const result = provider === 'google' ? await signInWithGoogle() : await signInWithApple();
+      const result = await signInWithGoogle();
       if (!result?.ok) {
         // Silent on user-initiated cancellation; surface anything else.
         if (result?.reason && result.reason !== 'cancelled') {
@@ -66,9 +43,11 @@ export default function LoginScreen({ navigation, route }) {
         }
         return;
       }
-      await socialLogin(provider, result?.idToken);
+      await socialLogin('google', result?.idToken);
     } catch (e) {
       Alert.alert('Sign-in failed', e?.message || 'Please try again.');
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -99,7 +78,7 @@ export default function LoginScreen({ navigation, route }) {
           </Text>
         </Pressable>
 
-        <Button title="Log In" onPress={onLogin} loading={loading} style={{ marginTop: 22 }} />
+        <Button title="Log In" onPress={onLogin} loading={loading} disabled={googleLoading} style={{ marginTop: 22 }} />
 
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, marginVertical: 26 }}>
           <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
@@ -109,10 +88,15 @@ export default function LoginScreen({ navigation, route }) {
           <View style={{ flex: 1, height: 1, backgroundColor: colors.line }} />
         </View>
 
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          <SocialButton icon="google" label="Google" onPress={() => onSocial('google')} />
-          <SocialButton icon="apple" label="Apple" onPress={() => onSocial('apple')} />
-        </View>
+        <Button
+          title="Continue with Google"
+          icon="google"
+          iconPosition="left"
+          variant="secondary"
+          onPress={onGoogleLogin}
+          loading={googleLoading}
+          disabled={loading}
+        />
 
         <Text variant="body" color="ink2" align="center" style={{ marginTop: 32 }}>
           Don&apos;t have an account?{' '}

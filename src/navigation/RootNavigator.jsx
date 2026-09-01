@@ -55,6 +55,9 @@ import SubscriptionScreen from '@/screens/subscription/SubscriptionScreen';
 import ProfileScreen from '@/screens/profile/ProfileScreen';
 import SettingsScreen from '@/screens/settings/SettingsScreen';
 import HelpSupportScreen from '@/screens/settings/HelpSupportScreen';
+import ContactSupportScreen from '@/screens/support/ContactSupportScreen';
+import FaqsScreen from '@/screens/settings/FaqsScreen';
+import LegalWebViewScreen from '@/screens/settings/LegalWebViewScreen';
 import OfflineResourcesScreen from '@/screens/settings/OfflineResourcesScreen';
 import DeleteAccountScreen from '@/screens/settings/DeleteAccountScreen';
 // System
@@ -188,6 +191,9 @@ export default function RootNavigator() {
               <Stack.Screen name={ROUTES.profile} component={ProfileScreen} />
               <Stack.Screen name={ROUTES.settings} component={SettingsScreen} />
               <Stack.Screen name={ROUTES.help} component={HelpSupportScreen} />
+              <Stack.Screen name={ROUTES.contactSupport} component={ContactSupportScreen} />
+              <Stack.Screen name={ROUTES.faqs} component={FaqsScreen} />
+              <Stack.Screen name={ROUTES.legalWebView} component={LegalWebViewScreen} />
               <Stack.Screen name={ROUTES.offlineResources} component={OfflineResourcesScreen} />
               <Stack.Screen name={ROUTES.deleteAccount} component={DeleteAccountScreen} />
               <Stack.Screen

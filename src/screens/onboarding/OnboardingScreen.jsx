@@ -242,7 +242,10 @@ export default function OnboardingScreen({ navigation }) {
             isLast={i === SLIDES.length - 1}
             onPrev={prev}
             onNext={next}
-            onLogin={() => navigation.replace(ROUTES.login)}
+            onLogin={() => {
+              completeOnboarding();
+              navigation.replace(ROUTES.login);
+            }}
             insetBottom={insets.bottom}
           />
         ))}
