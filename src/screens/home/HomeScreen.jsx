@@ -164,13 +164,13 @@ export default function HomeScreen({ navigation }) {
           style={{ marginTop: 22 }}
         />
 
-        <View style={{ paddingHorizontal: 24 }}>
+        <View style={{ paddingHorizontal: 12 }}>
           <QuickStartRow onBlank={startBlank} onTemplates={browseTemplates} style={{ marginTop: 16 }} />
         </View>
 
         {projectsLoading && projects.length === 0 ? (
           <>
-            <SectionHeader title="Recent Projects" style={{ paddingHorizontal: 24, marginTop: 28 }} />
+            <SectionHeader title="Recent Projects" style={{ paddingHorizontal: 12, marginTop: 28 }} />
             <RecentProjectsSkeleton style={{ marginTop: 16 }} />
           </>
         ) : projects.length === 0 ? (
@@ -189,9 +189,9 @@ export default function HomeScreen({ navigation }) {
               title="Recent Projects"
               action={projects.length > RECENT_LIMIT ? `See all ${projects.length}` : 'See all'}
               onAction={() => navigation.navigate(ROUTES.projects)}
-              style={{ paddingHorizontal: 24, marginTop: 28 }}
+              style={{ paddingHorizontal: 12, marginTop: 28 }}
             />
-            <Text variant="bodySm" color="ink3" style={{ paddingHorizontal: 24, marginTop: 2 }}>
+            <Text variant="bodySm" color="ink3" style={{ paddingHorizontal: 12, marginTop: 2 }}>
               {projects.length > RECENT_LIMIT
                 ? `Your ${RECENT_LIMIT} latest — the rest are in Projects.`
                 : 'Pick up where you left off.'}
@@ -208,10 +208,10 @@ export default function HomeScreen({ navigation }) {
         {/* Self-hiding: renders nothing for subscribers or once the day's cap
             is reached. Its own spacing lives on the card, so an empty wrapper
             can't leave a gap behind when it disappears. */}
-        <DailyBonusCard style={{ marginHorizontal: 24, marginTop: 28 }} />
+        <DailyBonusCard style={{ marginHorizontal: 12, marginTop: 28 }} />
 
         {tier === 'free' ? (
-          <View style={{ paddingHorizontal: 24, marginTop: 28 }}>
+          <View style={{ paddingHorizontal: 12, marginTop: 28 }}>
             <UpgradeBanner onPress={() => navigation.navigate(ROUTES.paywall)} />
           </View>
         ) : null}

@@ -5,6 +5,7 @@ import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import AdBanner from '@/components/ads/AdBanner';
+import { useAdLayout } from '@/store/useAdLayout';
 
 import { ROUTES } from './routes';
 
@@ -39,6 +40,7 @@ function TabButton({ route, isFocused, onPress }) {
 export default function TabBar({ state, navigation }) {
   const { colors, shadows } = useTheme();
   const insets = useSafeAreaInsets();
+  const setTabBarContentHeight = useAdLayout((s) => s.setTabBarContentHeight);
 
   const routes = state.routes;
   const left = routes.slice(0, 2);
@@ -57,6 +59,7 @@ export default function TabBar({ state, navigation }) {
     <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0 }}>
       <AdBanner />
       <View
+        onLayout={(e) => setTabBarContentHeight(e.nativeEvent.layout.height - insets.bottom)}
         style={{
           backgroundColor: colors.tabBar,
           borderTopWidth: 1,

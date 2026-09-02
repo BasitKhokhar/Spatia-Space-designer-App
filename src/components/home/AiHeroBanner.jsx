@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   View, Pressable, Image, ScrollView, StyleSheet, useWindowDimensions,
 } from 'react-native';
@@ -57,9 +57,7 @@ export default function AiHeroBanner({ images = [], onPress, inProgress = false,
 
   const scrollRef = useRef(null);
   const timer = useRef(null);
-  // Mirrors `index` for the interval callback, which closes over stale state.
   const indexRef = useRef(0);
-  const [index, setIndex] = useState(0);
 
   const stop = () => {
     if (timer.current) {
@@ -74,7 +72,6 @@ export default function AiHeroBanner({ images = [], onPress, inProgress = false,
     timer.current = setInterval(() => {
       const next = (indexRef.current + 1) % count;
       indexRef.current = next;
-      setIndex(next);
       scrollRef.current?.scrollTo({ x: next * cardW, animated: true });
     }, INTERVAL);
   };
@@ -83,7 +80,6 @@ export default function AiHeroBanner({ images = [], onPress, inProgress = false,
     // Re-arm whenever the deck or the page width changes (rotation), and always
     // clear on unmount — a timer left running holds the screen in memory.
     indexRef.current = 0;
-    setIndex(0);
     scrollRef.current?.scrollTo({ x: 0, animated: false });
     start();
     return stop;
@@ -93,7 +89,6 @@ export default function AiHeroBanner({ images = [], onPress, inProgress = false,
   const onMomentumScrollEnd = (e) => {
     const i = Math.round(e.nativeEvent.contentOffset.x / cardW);
     indexRef.current = i;
-    setIndex(i);
     start(); // resume after a manual swipe, timed from the user's last touch
   };
 
@@ -226,23 +221,6 @@ export default function AiHeroBanner({ images = [], onPress, inProgress = false,
               </Text>
               <Icon name="arrow-right" size={15} color="#1B1A17" strokeWidth={2.4} />
             </Pressable>
-
-            {count > 1 ? (
-              <View
-                style={{
-                  paddingHorizontal: 9,
-                  paddingVertical: 4,
-                  borderRadius: radius.pill,
-                  backgroundColor: 'rgba(0,0,0,0.45)',
-                  borderWidth: 1,
-                  borderColor: 'rgba(255,255,255,0.14)',
-                }}
-              >
-                <Text style={{ color: '#E7DED6', fontFamily: 'Manrope_600SemiBold', fontSize: 11 }}>
-                  {index + 1}/{count}
-                </Text>
-              </View>
-            ) : null}
           </View>
         </View>
       </View>
