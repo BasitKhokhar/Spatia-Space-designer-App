@@ -1,7 +1,9 @@
-import { View } from 'react-native';
+import { View, Image } from 'react-native';
 import Svg, { Rect, Path, Circle } from 'react-native-svg';
 
 import { useTheme } from '@/theme/useTheme';
+
+const LOGO_IMAGE = require('../../../assets/logoo.png');
 
 // The HomePlanner app mark glyph.
 export function LogoMark({ size = 48, stroke = '#F4F1EA', accent = '#D6795A' }) {
@@ -19,13 +21,13 @@ export function LogoMark({ size = 48, stroke = '#F4F1EA', accent = '#D6795A' }) 
   );
 }
 
-// Rounded tile containing the mark. `tone`: 'ink' (dark tile) or 'accent'.
-export function LogoTile({ size = 64, tone = 'ink', style }) {
+// Rounded tile containing the app logo image. `tone`: 'ink' (dark tile) or 'accent'.
+// `bare`: no tile background/shadow — the logo image itself fills the rounded
+// footprint directly (used by the splash screen).
+export function LogoTile({ size = 64, tone = 'ink', style, bare = false }) {
   const { colors, shadows } = useTheme();
   const isAccent = tone === 'accent';
   const bg = isAccent ? colors.accent : colors.ink;
-  const stroke = isAccent ? '#FFF3EE' : '#F4F1EA';
-  const accent = isAccent ? '#FFF3EE' : '#D6795A';
 
   return (
     <View
@@ -34,15 +36,20 @@ export function LogoTile({ size = 64, tone = 'ink', style }) {
           width: size,
           height: size,
           borderRadius: size * 0.28,
-          backgroundColor: bg,
+          backgroundColor: bare ? 'transparent' : bg,
           alignItems: 'center',
           justifyContent: 'center',
+          overflow: 'hidden',
         },
-        shadows.e2,
+        bare ? null : shadows.e2,
         style,
       ]}
     >
-      <LogoMark size={size * 0.55} stroke={stroke} accent={accent} />
+      <Image
+        source={LOGO_IMAGE}
+        style={{ width: bare ? size : size * 0.7, height: bare ? size : size * 0.7 }}
+        resizeMode="contain"
+      />
     </View>
   );
 }

@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { View, Pressable, ActivityIndicator, Linking, StyleSheet } from 'react-native';
+import { View, Pressable, ActivityIndicator, StyleSheet } from 'react-native';
 import { WebView } from 'react-native-webview';
 
 import Screen from '@/components/ui/Screen';
@@ -116,17 +116,6 @@ export default function LegalWebViewScreen({ navigation, route }) {
           />
         )}
       </View>
-
-      {!failed ? (
-        <Pressable
-          onPress={() => url && Linking.openURL(url).catch(() => {})}
-          style={{ paddingVertical: 14, alignItems: 'center' }}
-        >
-          <Text variant="bodySm" color="ink3">
-            Open in browser
-          </Text>
-        </Pressable>
-      ) : null}
     </Screen>
   );
 }

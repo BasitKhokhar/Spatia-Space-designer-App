@@ -5,6 +5,7 @@ import { zustandMMKVStorage } from './storage';
 import { uid } from '@/utils/id';
 import { isRemote } from '@/services/api/client';
 import { authApi } from '@/services/api/authApi';
+import { userApi } from '@/services/api/userApi';
 import { setTokens, clearTokens, setSessionExpiredHandler } from '@/services/api/session';
 import { resetUserData } from './resetUserData';
 import { unregisterPushNotifications } from '@/services/notifications/push';
@@ -19,6 +20,7 @@ function toUser(apiUser) {
     id: apiUser.id,
     name,
     email: apiUser.email,
+    phone: apiUser.phone || '',
     initial: name.trim().charAt(0).toUpperCase(),
   };
 }
@@ -104,6 +106,35 @@ export const useAuthStore = create(
         // navigator swaps back to the Login stack once isAuthenticated flips.
         resetUserData();
         set({ user: null, isAuthenticated: false });
+      },
+
+      // Re-pull the profile from the server — used when opening the profile
+      // form so fields edited on another device (or before `phone` existed
+      // in the persisted store) show up correctly.
+      refreshProfile: async () => {
+        if (!isRemote()) return get().user;
+        const data = await userApi.getMe();
+        const merged = { ...get().user, ...toUser(data) };
+        set({ user: merged });
+        return merged;
+      },
+
+      // name/phone only — email is immutable (it's the unique login key) and
+      // password has its own dedicated flow (see authApi.updatePassword).
+      updateProfile: async ({ name, phone }) => {
+        if (isRemote()) {
+          await userApi.updateMe({ name, phone });
+        }
+        const current = get().user || {};
+        const nextName = name ?? current.name;
+        const updated = {
+          ...current,
+          name: nextName,
+          phone: phone ?? current.phone,
+          initial: (nextName || 'D').trim().charAt(0).toUpperCase(),
+        };
+        set({ user: updated });
+        return updated;
       },
 
       logout: async () => {

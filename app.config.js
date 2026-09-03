@@ -85,13 +85,13 @@ module.exports = {
     slug: 'spatia3d-space-designer',
     version: '1.0.0',
     orientation: 'portrait',
-    icon: './assets/icon.png',
+    icon: './assets/logo.png',
     scheme: 'homeplanner',
     owner: 'basit5000',
     userInterfaceStyle: 'automatic',
     newArchEnabled: true,
     splash: {
-      image: './assets/splash.png',
+      image: './assets/nativesplashlogo.png',
       resizeMode: 'contain',
       backgroundColor: '#131210',
     },
@@ -110,7 +110,7 @@ module.exports = {
       package: 'com.spatia3dspacedesigner.app',
       googleServicesFile: './google-services.json',
       adaptiveIcon: {
-        foregroundImage: './assets/adaptive-icon.png',
+        foregroundImage: './assets/android_foreground.png',
         backgroundColor: '#131210',
       },
       // POST_NOTIFICATIONS: Android 13+ runtime grant for the download progress
@@ -137,6 +137,7 @@ module.exports = {
       // that plugin simply puts them back.
       './plugins/withStrippedPermissions',
       './plugins/withNotifeeForegroundServiceType',
+      './plugins/withNavigationBarNoContrastScrim',
       'expo-dev-client',
       'expo-secure-store',
       'expo-iap',
@@ -164,7 +165,7 @@ module.exports = {
         'expo-splash-screen',
         {
           backgroundColor: '#131210',
-          image: './assets/splash.png',
+          image: './assets/nativesplashlogo.png',
           imageWidth: 160,
         },
       ],

@@ -10,6 +10,7 @@ import Icon from '@/components/icons/Icon';
 import { useTheme } from '@/theme/useTheme';
 import { useAuthStore } from '@/store/useAuthStore';
 import { ROUTES } from '@/navigation/routes';
+import { LINKS } from '@/constants/links';
 
 export default function SignupScreen({ navigation }) {
   const { colors, radius } = useTheme();
@@ -18,7 +19,7 @@ export default function SignupScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [agree, setAgree] = useState(true);
+  const [agree, setAgree] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const canSubmit = name && email && password && password === confirm && agree;
@@ -57,11 +58,10 @@ export default function SignupScreen({ navigation }) {
           </View>
         </View>
 
-        <Pressable
-          onPress={() => setAgree((a) => !a)}
-          style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginTop: 20 }}
-        >
-          <View
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginTop: 20 }}>
+          <Pressable
+            hitSlop={10}
+            onPress={() => setAgree((a) => !a)}
             style={{
               width: 24,
               height: 24,
@@ -75,12 +75,29 @@ export default function SignupScreen({ navigation }) {
             }}
           >
             {agree ? <Icon name="check" size={14} color={colors.onAccent} strokeWidth={2.6} /> : null}
-          </View>
+          </Pressable>
           <Text variant="bodySm" color="ink2" style={{ flex: 1, lineHeight: 20 }}>
-            I agree to the <Text variant="bodySm" color="accent" style={{ fontWeight: '700' }}>Terms of Service</Text> and{' '}
-            <Text variant="bodySm" color="accent" style={{ fontWeight: '700' }}>Privacy Policy</Text>.
+            I agree to the{' '}
+            <Text
+              variant="bodySm"
+              color="accent"
+              style={{ fontWeight: '700' }}
+              onPress={() => navigation.navigate(ROUTES.legalWebView, { url: LINKS.terms, title: 'Terms of Service' })}
+            >
+              Terms of Service
+            </Text>{' '}
+            and{' '}
+            <Text
+              variant="bodySm"
+              color="accent"
+              style={{ fontWeight: '700' }}
+              onPress={() => navigation.navigate(ROUTES.legalWebView, { url: LINKS.privacy, title: 'Privacy Policy' })}
+            >
+              Privacy Policy
+            </Text>
+            .
           </Text>
-        </Pressable>
+        </View>
 
         <Button
           title="Create Account"

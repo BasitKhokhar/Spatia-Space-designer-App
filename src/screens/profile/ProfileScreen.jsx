@@ -1,45 +1,111 @@
-import { View, Pressable, ScrollView } from 'react-native';
+import { useEffect, useState } from 'react';
+import { View, Pressable, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
 import Text from '@/components/ui/Text';
 import Icon from '@/components/icons/Icon';
-import ListRow, { RowDivider } from '@/components/ui/ListRow';
+import Input from '@/components/ui/Input';
+import Button from '@/components/ui/Button';
+import ChangePasswordModal from '@/components/profile/ChangePasswordModal';
 import { useTheme } from '@/theme/useTheme';
 import { useAuthStore } from '@/store/useAuthStore';
-import { useCreditsStore } from '@/store/useCreditsStore';
-import { useProjectsStore } from '@/store/useProjectsStore';
 import { accent } from '@/theme/colors';
-import { ROUTES } from '@/navigation/routes';
 
-function Stat({ value, label }) {
-  const { colors, radius } = useTheme();
+// Read-only field styled like Input, for values that can't be edited here
+// (email is the unique login key; password has its own change flow).
+function LockedField({ label, value, rightSlot }) {
+  const { colors, radius, fonts } = useTheme();
   return (
-    <View
-      style={{
-        flex: 1,
-        backgroundColor: colors.surface,
-        borderWidth: 1,
-        borderColor: colors.lineSoft,
-        borderRadius: radius.lg,
-        padding: 18,
-        alignItems: 'center',
-      }}
-    >
-      <Text style={{ fontFamily: 'Sora_800ExtraBold', fontSize: 26, color: colors.ink }}>{value}</Text>
-      <Text variant="bodySm" color="ink3" style={{ marginTop: 4 }}>
+    <View style={{ marginBottom: 14 }}>
+      <Text variant="label" color="ink2" style={{ marginBottom: 8, marginLeft: 2 }}>
         {label}
       </Text>
+      <View
+        style={{
+          height: 54,
+          backgroundColor: colors.bg,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: colors.line,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 12,
+          paddingHorizontal: 16,
+        }}
+      >
+        <Text style={{ flex: 1, fontFamily: fonts.bodySemi, fontSize: 15, color: colors.ink3 }} numberOfLines={1}>
+          {value}
+        </Text>
+        {rightSlot}
+      </View>
     </View>
+  );
+}
+
+function ChangeChip({ onPress }) {
+  const { colors, radius } = useTheme();
+  return (
+    <Pressable
+      onPress={onPress}
+      hitSlop={8}
+      style={{
+        backgroundColor: colors.accentSoft,
+        borderRadius: radius.sm,
+        paddingHorizontal: 12,
+        paddingVertical: 7,
+      }}
+    >
+      <Text variant="bodySm" color="accent" style={{ fontWeight: '700' }}>
+        Change
+      </Text>
+    </Pressable>
   );
 }
 
 export default function ProfileScreen({ navigation }) {
   const { colors, radius } = useTheme();
   const user = useAuthStore((s) => s.user);
-  const balance = useCreditsStore((s) => s.balance);
-  const projects = useProjectsStore((s) => s.projects);
-  const exportsMade = useProjectsStore((s) => s.exportsMade);
+  const refreshProfile = useAuthStore((s) => s.refreshProfile);
+  const updateProfile = useAuthStore((s) => s.updateProfile);
+
+  const [name, setName] = useState(user?.name || '');
+  const [phone, setPhone] = useState(user?.phone || '');
+  const [loadingProfile, setLoadingProfile] = useState(true);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    refreshProfile()
+      .then((fresh) => {
+        if (!alive) return;
+        setName(fresh?.name || '');
+        setPhone(fresh?.phone || '');
+      })
+      .catch(() => {})
+      .finally(() => alive && setLoadingProfile(false));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const handleSaveProfile = async () => {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      Alert.alert('Name required', 'Please enter your name.');
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      await updateProfile({ name: trimmedName, phone: phone.trim() });
+      Alert.alert('Profile updated', 'Your details have been saved.');
+    } catch (e) {
+      Alert.alert('Update failed', e?.message || 'Please try again.');
+    } finally {
+      setSavingProfile(false);
+    }
+  };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'bottom']}>
@@ -72,43 +138,6 @@ export default function ProfileScreen({ navigation }) {
           <Text variant="h2">Profile</Text>
         </View>
 
-        <View style={{ alignItems: 'center', marginTop: 26 }}>
-          <LinearGradient
-            colors={[accent.a400, accent.a700]}
-            style={{ width: 92, height: 92, borderRadius: 28, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Text style={{ color: '#fff', fontFamily: 'Sora_700Bold', fontSize: 34 }}>{user?.initial || 'A'}</Text>
-          </LinearGradient>
-          <Text variant="h2" style={{ marginTop: 16 }}>
-            {user?.name || 'Designer'}
-          </Text>
-          <Text variant="bodySm" color="ink3" style={{ marginTop: 4 }}>
-            {user?.email}
-          </Text>
-          <View
-            style={{
-              marginTop: 16,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 7,
-              backgroundColor: colors.surface,
-              borderWidth: 1,
-              borderColor: colors.line,
-              borderRadius: 999,
-              paddingHorizontal: 16,
-              paddingVertical: 9,
-            }}
-          >
-            <Text style={{ fontSize: 12 }}>🪙</Text>
-            <Text variant="titleSm">{balance} credits</Text>
-          </View>
-        </View>
-
-        <View style={{ flexDirection: 'row', gap: 14, paddingHorizontal: 24, marginTop: 24 }}>
-          <Stat value={projects.length} label="Projects created" />
-          <Stat value={exportsMade} label="Exports made" />
-        </View>
-
         <View
           style={{
             marginHorizontal: 24,
@@ -117,18 +146,51 @@ export default function ProfileScreen({ navigation }) {
             borderRadius: radius.xl,
             borderWidth: 1,
             borderColor: colors.lineSoft,
-            overflow: 'hidden',
+            padding: 20,
           }}
         >
-          <ListRow
-            icon="grid"
-            label="My Projects"
-            onPress={() => navigation.navigate(ROUTES.tabs, { screen: ROUTES.projects })}
+          <View style={{ alignItems: 'center', marginBottom: 20 }}>
+            <LinearGradient
+              colors={[accent.a400, accent.a700]}
+              style={{ width: 84, height: 84, borderRadius: 26, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={{ color: '#fff', fontFamily: 'Sora_700Bold', fontSize: 30 }}>{user?.initial || 'A'}</Text>
+            </LinearGradient>
+          </View>
+
+          <Input label="Name" value={name} onChangeText={setName} placeholder="Your name" icon="user" style={{ marginBottom: 14 }} />
+
+          <LockedField label="Email" value={user?.email || ''} />
+
+          <Input
+            label="Phone"
+            value={phone}
+            onChangeText={setPhone}
+            placeholder="Add a phone number"
+            keyboardType="phone-pad"
+            style={{ marginBottom: 14 }}
           />
-          <RowDivider />
-          <ListRow icon="upload" label="Export History" onPress={() => navigation.navigate(ROUTES.export)} />
+
+          <LockedField label="Password" value="••••••••" rightSlot={<ChangeChip onPress={() => setShowPasswordModal(true)} />} />
+
+          <Button
+            title="Save Changes"
+            onPress={handleSaveProfile}
+            loading={savingProfile}
+            disabled={loadingProfile}
+            style={{ marginTop: 4 }}
+          />
         </View>
       </ScrollView>
+
+      <ChangePasswordModal
+        visible={showPasswordModal}
+        onClose={() => setShowPasswordModal(false)}
+        onSuccess={() => {
+          setShowPasswordModal(false);
+          Alert.alert('Password updated', 'Your password has been changed successfully.');
+        }}
+      />
     </SafeAreaView>
   );
 }

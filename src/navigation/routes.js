@@ -41,7 +41,6 @@ export const ROUTES = {
   itemSheet: 'ItemPlacement',
   // Settings
   settings: 'Settings',
-  help: 'HelpSupport',
   contactSupport: 'ContactSupport',
   faqs: 'Faqs',
   deleteAccount: 'DeleteAccount',

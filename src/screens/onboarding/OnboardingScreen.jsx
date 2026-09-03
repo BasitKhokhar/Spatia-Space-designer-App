@@ -24,28 +24,28 @@ const SLIDES = [
     titleLine1: 'Draw Your',
     titleLine2: 'Floor Plans',
     body: 'Sketch walls, rooms, doors and windows with snap-to-grid precision — no CAD skills needed.',
-    image: 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=800&h=900&fit=crop&q=80',
+    image: require('../../../assets/onb1.png'),
   },
   {
     key: '3d',
     titleLine1: 'See Your Space',
     titleLine2: 'In Real 3D',
     body: 'Flip any plan into a walkable 3D room. Adjust lighting and time of day to feel the space.',
-    image: 'https://images.unsplash.com/photo-1618221195710-dd6b41faaea6?w=800&h=900&fit=crop&q=80',
+    image: require('../../../assets/onb2.png'),
   },
   {
     key: 'furnish',
     titleLine1: 'Furnish With Real',
     titleLine2: 'Catalog Pieces',
     body: 'Drag sofas, tables and lighting from a curated catalog. Recolor and rescale to fit perfectly.',
-    image: 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=800&h=900&fit=crop&q=80',
+    image: require('../../../assets/onb3.png'),
   },
   {
     key: 'export',
     titleLine1: 'Export & Share',
     titleLine2: 'Your Design',
     body: 'Save high-res images or 3D files and share your rooms anywhere.',
-    image: 'https://images.unsplash.com/photo-1484154218962-a197022b5858?w=800&h=900&fit=crop&q=80',
+    image: require('../../../assets/onb4.png'),
   },
 ];
 
@@ -87,7 +87,7 @@ function Slide({
         <Animated.View
           style={[{ position: 'absolute', top: -14, left: -14, right: -14, bottom: -14 }, kenBurns]}
         >
-          <Image source={{ uri: slide.image }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+          <Image source={slide.image} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
         </Animated.View>
         <LinearGradient
           colors={['rgba(10,8,6,0.32)', 'transparent']}
@@ -106,7 +106,7 @@ function Slide({
           overflow: 'hidden',
           paddingTop: 26,
           paddingHorizontal: 30,
-          paddingBottom: insetBottom + 4,
+          // paddingBottom: Math.max(insetBottom, 12),
         }}
       >
         <Animated.View style={[{ flex: 1 }, cardContentStyle]}>

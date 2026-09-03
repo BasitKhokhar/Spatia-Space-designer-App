@@ -107,6 +107,14 @@ function stopForegroundService() {
   notifee.stopForegroundService().catch(() => {});
 }
 
+// Registered at module load (cold start, idle JS thread) rather than lazily
+// on first download. Notifee needs this JS<->native task bridge wired up
+// before `displayNotification({ asForegroundService: true })` is ever called;
+// registering it for the first time in the same tick as the post-login burst
+// of API calls (projects/credits/catalog/push) starves the bridge and Android
+// kills the app with ForegroundServiceDidNotStartInTimeException.
+registerForegroundService();
+
 // Action buttons. Notifee delivers presses to both a foreground and a
 // background listener; the background one is what fires when the shade is used
 // while the app is not on screen, which is the common case here.

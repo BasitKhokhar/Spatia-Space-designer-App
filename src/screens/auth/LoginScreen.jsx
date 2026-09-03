@@ -12,10 +12,10 @@ import { signInWithGoogle } from '@/services/auth/social';
 import { ROUTES } from '@/navigation/routes';
 
 export default function LoginScreen({ navigation, route }) {
-  const { colors, isDark } = useTheme();
+  const { colors } = useTheme();
   const login = useAuthStore((s) => s.login);
   const socialLogin = useAuthStore((s) => s.socialLogin);
-  const [email, setEmail] = useState(route?.params?.email ?? 'alex@studio.com');
+  const [email, setEmail] = useState(route?.params?.email ?? '');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -54,8 +54,8 @@ export default function LoginScreen({ navigation, route }) {
   return (
     <Screen scroll padded contentContainerStyle={{ paddingBottom: 40 }}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={{ paddingTop: 8 }}>
-          <LogoTile size={56} tone={isDark ? 'accent' : 'ink'} />
+        <View style={{ paddingTop: 12 }}>
+          <LogoTile size={70} bare />
           <Text variant="display" style={{ marginTop: 26 }}>
             Welcome back
           </Text>
@@ -65,7 +65,14 @@ export default function LoginScreen({ navigation, route }) {
         </View>
 
         <View style={{ marginTop: 28, gap: 16 }}>
-          <Input label="Email" icon="mail" value={email} onChangeText={setEmail} keyboardType="email-address" />
+          <Input
+            label="Email"
+            icon="mail"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            placeholder="basit@gmail.com"
+          />
           <Input label="Password" icon="lock" value={password} onChangeText={setPassword} secureTextEntry />
         </View>
 

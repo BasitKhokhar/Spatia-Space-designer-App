@@ -30,6 +30,13 @@ export default function AdBanner({ style }) {
 
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  // Local, render-blocking height — separate from the store's bannerHeight
+  // (which only exists so other screens can pad their scroll content). This
+  // one clips the wrapper itself, so the adaptive banner's native view — which
+  // reserves its full height the instant it mounts, before any ad has loaded
+  // or failed — can never show as a blank box while a load is in flight or
+  // being retried.
+  const [loadedHeight, setLoadedHeight] = useState(0);
   const failures = useRef(0);
   const retryTimer = useRef(null);
 
@@ -39,7 +46,10 @@ export default function AdBanner({ style }) {
   // Always give the space back when the banner goes away, or the tab screens
   // keep padding for an ad that is no longer there.
   useEffect(() => {
-    if (!enabled) setBannerHeight(0);
+    if (!enabled) {
+      setBannerHeight(0);
+      setLoadedHeight(0);
+    }
   }, [enabled, setBannerHeight]);
 
   useEffect(
@@ -54,13 +64,17 @@ export default function AdBanner({ style }) {
     (dimensions) => {
       failures.current = 0;
       const height = dimensions?.height;
-      if (height) setBannerHeight(height + GAP);
+      if (height) {
+        setBannerHeight(height + GAP);
+        setLoadedHeight(height);
+      }
     },
     [setBannerHeight]
   );
 
   const onAdFailedToLoad = useCallback(() => {
     setBannerHeight(0);
+    setLoadedHeight(0);
     failures.current += 1;
     if (failures.current >= AD_CONFIG.bannerRetryLimit) {
       // Stop asking for the rest of the session rather than retrying forever.
@@ -77,7 +91,18 @@ export default function AdBanner({ style }) {
   if (!BannerAd) return null;
 
   return (
-    <View style={[{ backgroundColor: colors.tabBar, alignItems: 'center', paddingBottom: GAP }, style]}>
+    <View
+      style={[
+        {
+          backgroundColor: colors.tabBar,
+          alignItems: 'center',
+          height: loadedHeight ? loadedHeight + GAP : 0,
+          paddingBottom: loadedHeight ? GAP : 0,
+          overflow: 'hidden',
+        },
+        style,
+      ]}
+    >
       <BannerAd
         // Remounts on a consent change so the next request carries the new
         // personalisation flag instead of reusing the old one.

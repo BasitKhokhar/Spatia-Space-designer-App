@@ -212,7 +212,7 @@ export default function HomeScreen({ navigation }) {
 
         {tier === 'free' ? (
           <View style={{ paddingHorizontal: 12, marginTop: 28 }}>
-            <UpgradeBanner onPress={() => navigation.navigate(ROUTES.paywall)} />
+            <UpgradeBanner onPress={() => navigation.navigate(ROUTES.subscription)} />
           </View>
         ) : null}
       </ScrollView>

@@ -38,11 +38,22 @@ export default function SplashScreen() {
     <Screen>
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 26 }}>
         <Animated.View entering={FadeIn.duration(600)} style={logoStyle}>
-          <LogoTile size={96} tone={isDark ? 'accent' : 'ink'} />
+          <LogoTile size={110} tone={isDark ? 'accent' : 'ink'} bare />
         </Animated.View>
 
-        <Animated.View entering={FadeInDown.delay(200).duration(600)} style={{ alignItems: 'center' }}>
-          <Text variant="display">HomePlanner</Text>
+        <Animated.View
+          entering={FadeInDown.delay(200).duration(600)}
+          style={{ alignItems: 'center', paddingHorizontal: 32 }}
+        >
+          <Text
+            variant="display"
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+            align="center"
+          >
+            Spatia: 3D Space Designer
+          </Text>
           <Text variant="body" color="ink3" style={{ marginTop: 10 }}>
             Draw. Visualize. Furnish.
           </Text>

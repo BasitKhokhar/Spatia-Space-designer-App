@@ -4,6 +4,30 @@ import { useCreditsStore } from '@/store/useCreditsStore';
 import { showRewardedAdEx } from '@/services/ads/rewarded';
 import { canShowRewarded } from '@/services/ads/gate';
 import { AD_CONFIG } from '@/services/ads/config';
+import { showToast } from '@/store/useToast';
+
+// `watch()` failure reasons that mean "AdMob had nothing to show" — as
+// opposed to an ad that showed fine but the user backed out of early (that
+// comes back as reason: null, or 'close-timeout', and isn't a fill problem).
+// Only this set earns the user-facing toast; the rest are either silent by
+// design (the button is already hidden) or not actually a failure.
+const NO_FILL_REASONS = new Set([
+  'no-sdk',
+  'gated',
+  'disabled',
+  'unavailable',
+  'load-failed',
+  'not-loaded',
+  'ad-error',
+  'load-timeout',
+  'create-failed',
+  'load-threw',
+  'show-threw',
+  'already-presenting',
+  'error',
+]);
+
+const NO_AD_MESSAGE = "No ad available from AdMob right now — please try again later.";
 
 // Shared "watch an ad for credits" flow.
 //
@@ -41,16 +65,23 @@ export function useRewardedFlow() {
     if (busy) return { earned: false, reason: 'busy' };
     if (adsDisabled) return { earned: false, reason: 'ads-disabled' };
     if (adsRemaining <= 0) return { earned: false, capped: true, reason: 'daily-cap' };
-    if (!canShowRewarded()) return { earned: false, reason: 'unavailable' };
+    if (!canShowRewarded()) {
+      showToast(NO_AD_MESSAGE);
+      return { earned: false, reason: 'unavailable' };
+    }
 
     setBusy(true);
     try {
       const { earned, reason } = await showRewardedAdEx();
-      if (!earned) return { earned: false, reason };
+      if (!earned) {
+        if (NO_FILL_REASONS.has(reason)) showToast(NO_AD_MESSAGE);
+        return { earned: false, reason };
+      }
       // Awaited: the balance must be in place before the caller re-reads it.
       const granted = await earnFromAd();
       return { earned: granted, capped: !granted, reason: granted ? null : 'grant-rejected' };
     } catch {
+      showToast(NO_AD_MESSAGE);
       return { earned: false, reason: 'error' };
     } finally {
       if (mounted.current) setBusy(false);

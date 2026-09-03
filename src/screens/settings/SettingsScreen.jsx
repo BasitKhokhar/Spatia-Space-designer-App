@@ -18,8 +18,7 @@ import { APP_VERSION, BUILD_NUMBER } from '@/constants/config';
 import { LINKS } from '@/constants/links';
 import { ROUTES } from '@/navigation/routes';
 import { useTabPadding } from '@/store/useAdLayout';
-import { privacyOptionsRequired, showPrivacyOptionsForm, resetConsentForDebug } from '@/services/ads/consent';
-import { getAdsModule } from '@/services/ads/state';
+import { privacyOptionsRequired, showPrivacyOptionsForm } from '@/services/ads/consent';
 
 function Group({ title, danger, children }) {
   const { colors, radius } = useTheme();
@@ -190,11 +189,7 @@ export default function SettingsScreen({ navigation, route }) {
         </Group>
 
         <Group title="SUPPORT & LEGAL">
-          <ListRow icon="star" label="Rate the App" onPress={() => {}} />
-          <RowDivider />
-          <ListRow icon="share" label="Share App" onPress={() => {}} />
-          <RowDivider />
-          <ListRow icon="help" label="Help & Support" onPress={() => navigation.navigate(ROUTES.help)} />
+          <ListRow icon="help" label="Help & Support" onPress={() => navigation.navigate(ROUTES.contactSupport)} />
           <RowDivider />
           <ListRow icon="help" label="FAQs" onPress={() => navigation.navigate(ROUTES.faqs)} />
           <RowDivider />
@@ -212,18 +207,6 @@ export default function SettingsScreen({ navigation, route }) {
           <RowDivider />
           <ListRow icon="file" label="Terms & Conditions" onPress={() => openLegalPage(LINKS.terms, 'Terms & Conditions')} />
         </Group>
-
-        {__DEV__ ? (
-          <Group title="DEVELOPER">
-            <ListRow
-              icon="search"
-              label="Ad inspector"
-              onPress={() => getAdsModule()?.default?.().openAdInspector?.()}
-            />
-            <RowDivider />
-            <ListRow icon="eye" label="Reset ad consent" onPress={() => resetConsentForDebug()} />
-          </Group>
-        ) : null}
 
         <Group title="DANGER ZONE" danger>
           <ListRow icon="trash" label="Delete Account" danger onPress={() => setDeleteModal(true)} />

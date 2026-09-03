@@ -9,6 +9,7 @@ import { ThemeProvider } from '@/theme/ThemeProvider';
 import { useAppFonts } from '@/theme/useAppFonts';
 import RootNavigator from '@/navigation/RootNavigator';
 import AppErrorBoundary from '@/components/AppErrorBoundary';
+import ToastHost from '@/components/feedback/ToastHost';
 import { initMonetization } from '@/services/ads/admob';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -53,6 +54,7 @@ export default function App() {
             <BottomSheetModalProvider>
               <StatusBar style="auto" />
               <RootNavigator />
+              <ToastHost />
             </BottomSheetModalProvider>
           </ThemeProvider>
         </SafeAreaProvider>
