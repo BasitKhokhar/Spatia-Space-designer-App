@@ -7,6 +7,7 @@ import Screen from '@/components/ui/Screen';
 import Text from '@/components/ui/Text';
 import HeaderBar from '@/components/ui/HeaderBar';
 import Icon from '@/components/icons/Icon';
+import SubscriptionSkeleton from '@/components/subscription/SubscriptionSkeleton';
 import { useTheme } from '@/theme/useTheme';
 import { accent } from '@/theme/colors';
 import { useCreditsStore } from '@/store/useCreditsStore';
@@ -197,7 +198,7 @@ export default function SubscriptionScreen({ navigation }) {
       <HeaderBar title="Subscription" onBack={() => navigation.goBack()} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }}>
         {loading ? (
-          <ActivityIndicator color={colors.accent} style={{ marginVertical: 40 }} />
+          <SubscriptionSkeleton />
         ) : (
           <>
             {isPremiumTier ? (
