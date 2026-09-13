@@ -43,6 +43,7 @@ export const ROUTES = {
   settings: 'Settings',
   contactSupport: 'ContactSupport',
   faqs: 'Faqs',
+  notificationPreferences: 'NotificationPreferences',
   deleteAccount: 'DeleteAccount',
   offlineResources: 'OfflineResources',
   // In-app browser for external pages (Privacy Policy, Terms, etc.) —

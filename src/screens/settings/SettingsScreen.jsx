@@ -139,7 +139,11 @@ export default function SettingsScreen({ navigation, route }) {
           <RowDivider />
           <ListRow icon="cart" label="Earn Credits" onPress={() => navigation.navigate(ROUTES.earnCredits)} />
           <RowDivider />
-          <ListRow icon="bell" label="Notification Preferences" onPress={() => {}} />
+          <ListRow
+            icon="bell"
+            label="Notification Preferences"
+            onPress={() => navigation.navigate(ROUTES.notificationPreferences)}
+          />
         </Group>
 
         <Group title="APPEARANCE">

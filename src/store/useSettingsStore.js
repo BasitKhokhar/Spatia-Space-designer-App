@@ -12,6 +12,7 @@ export const useSettingsStore = create(
       measurementUnit: 'meters', // 'meters' | 'feet'
       onboardingComplete: false,
       notificationsEnabled: true,
+      notificationCategories: { designUpdates: true, creditsAndBilling: true, tipsAndOffers: false },
       // How aggressively to pull catalog resources (.glb + images).
       // 'wifi' is the default: hundreds of MB must never land on a metered
       // connection without the user having said so.
@@ -24,6 +25,8 @@ export const useSettingsStore = create(
       setMeasurementUnit: (measurementUnit) => set({ measurementUnit }),
       completeOnboarding: () => set({ onboardingComplete: true }),
       setNotifications: (notificationsEnabled) => set({ notificationsEnabled }),
+      setNotificationCategory: (key, value) =>
+        set((state) => ({ notificationCategories: { ...state.notificationCategories, [key]: value } })),
       setAssetDownloadPolicy: (assetDownloadPolicy) => set({ assetDownloadPolicy }),
       markAssetPromptSeen: () => set({ assetPromptSeen: true }),
       reset: () =>
@@ -33,6 +36,7 @@ export const useSettingsStore = create(
           measurementUnit: 'meters',
           onboardingComplete: false,
           notificationsEnabled: true,
+          notificationCategories: { designUpdates: true, creditsAndBilling: true, tipsAndOffers: false },
           assetDownloadPolicy: 'wifi',
           assetPromptSeen: false,
         }),

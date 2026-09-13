@@ -30,6 +30,14 @@ const shade = (hex, f) => {
   return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
 };
 
+// Skirting for custom-drawn room shells (polygon structure items). Mirrors the
+// trim constants in Room3D's WallMesh — kept as a separate copy rather than a
+// shared import because models.jsx <-> Room3D.jsx would otherwise be circular
+// (Room3D already imports PlacedItem/Door from here).
+const SHELL_TRIM_COLOR = '#F4F1EA';
+const SHELL_BASEBOARD_H = 0.1;
+const SHELL_BASEBOARD_PROUD = 0.015;
+
 const WOOD = '#8A6250';
 const WOOD_DK = '#6E5240';
 const METAL = '#9AA0A6';
@@ -1071,6 +1079,22 @@ function RoomShell({ item, w, d, h, kind, points, wallThickness, openEdges, wall
             const posX = (u0 + u1) / 2 - e.len / 2;
             return <Box key={`s${j}`} w={spanW} h={h} d={t} x={posX} y={h / 2} mat={wallMat} color={wallColor} rough={0.9} cast={false} />;
           })}
+          {/* skirting, on the same solid spans — the wall-to-floor seam is the
+              strongest "this is a diagram, not a room" cue when left bare, and
+              the main plan's own walls already get this (Room3D's WallMesh). */}
+          {e.spans.map(([u0, u1], j) => {
+            const spanW = u1 - u0;
+            if (spanW <= 0.001) return null;
+            const posX = (u0 + u1) / 2 - e.len / 2;
+            return (
+              <Box
+                key={`bb${j}`}
+                w={spanW} h={SHELL_BASEBOARD_H} d={t + SHELL_BASEBOARD_PROUD * 2}
+                x={posX} y={SHELL_BASEBOARD_H / 2}
+                mat="paint" color={SHELL_TRIM_COLOR} rough={0.7} cast={false}
+              />
+            );
+          })}
           {e.ops.map((op, j) => {
             const posX = (op.u0 + op.u1) / 2 - e.len / 2;
             const opW = op.u1 - op.u0;
@@ -1093,33 +1117,67 @@ function RoomShell({ item, w, d, h, kind, points, wallThickness, openEdges, wall
   );
 }
 
-function Stairs({ w, d, shape, color }) {
-  const steps = shape?.steps || 12;
-  const rise = 2.6; // ascend one storey regardless of the flat plan thickness
-  const parts = [];
+// A real staircase: sloped side stringers carrying individual treads + closed
+// risers, rather than one solid box per step (which reads as stacked blocks).
+// `h` is the item's own declared height — the actual storey rise this flight
+// climbs — so a stair sized to reach the ceiling produces a flight that visually
+// reaches it too, instead of always climbing a hardcoded 2.6m.
+function Stairs({ w, d, h, shape, color }) {
+  const steps = Math.max(3, shape?.steps || 12);
+  const rise = h > 0.5 ? h : 2.6;
+  const stepH = rise / steps;
+  const treadThick = Math.min(0.045, stepH * 0.35);
+  const stringerT = Math.min(0.06, w * 0.1);
+  const stringerH = Math.max(stepH * 1.6, 0.16);
+  const stringerColor = shade(color, 0.55);
+  const riserColor = shade(color, 1.08);
+
   if (shape?.turn === 'spiral') {
     const R = Math.min(w, d) * 0.42;
-    parts.push(<Cyl key="pole" r={R * 0.14} h={rise} y={rise / 2} color={shade(color, 0.7)} />);
+    const parts = [<Cyl key="pole" r={R * 0.12} h={rise} y={rise / 2} color={shade(color, 0.5)} />];
     for (let i = 0; i < steps; i++) {
       const a = (i / steps) * Math.PI * 1.9;
-      const sh = (rise * (i + 1)) / steps;
+      const topY = stepH * (i + 1);
       parts.push(
         <Box
-          key={i}
-          w={R} h={rise / steps} d={R * 1.1}
-          x={Math.cos(a) * R * 0.6} y={sh - rise / steps / 2} z={Math.sin(a) * R * 0.6}
+          key={`t${i}`}
+          w={R} h={treadThick} d={R * 1.05}
+          x={Math.cos(a) * R * 0.55} y={topY - treadThick / 2} z={Math.sin(a) * R * 0.55}
           ry={-a}
-          mat="wood" color={color} rough={0.85}
+          mat="wood" color={color} rough={0.75}
         />
       );
     }
     return <>{parts}</>;
   }
+
   const run = d / steps;
-  for (let i = 0; i < steps; i++) {
-    const sh = (rise * (i + 1)) / steps;
+  const treadW = Math.max(0.1, w - stringerT * 2);
+  const sideX = w / 2 - stringerT / 2;
+  const stringerLen = Math.hypot(rise, d);
+  const stringerAngle = Math.atan2(rise, d);
+  const parts = [];
+
+  [-1, 1].forEach((side) => {
     parts.push(
-      <Box key={i} w={w} h={sh} d={run} y={sh / 2} z={-d / 2 + (i + 0.5) * run} mat="wood" color={color} rough={0.85} />
+      <Box
+        key={`str${side}`}
+        w={stringerT} h={stringerH} d={stringerLen}
+        x={side * sideX} y={rise / 2} rot={[-stringerAngle, 0, 0]}
+        mat="wood" color={stringerColor} rough={0.7}
+      />
+    );
+  });
+
+  for (let i = 0; i < steps; i++) {
+    const topY = stepH * (i + 1);
+    const zBack = -d / 2 + i * run;
+    const zCenter = -d / 2 + (i + 0.5) * run;
+    parts.push(
+      <Box key={`r${i}`} w={treadW} h={stepH} d={0.02} y={stepH * (i + 0.5)} z={zBack} mat="wood" color={riserColor} rough={0.9} />
+    );
+    parts.push(
+      <Box key={`t${i}`} w={treadW} h={treadThick} d={run} y={topY - treadThick / 2} z={zCenter} mat="wood" color={color} rough={0.7} />
     );
   }
   return <>{parts}</>;
@@ -1212,7 +1270,7 @@ function StructureGeometry({ item, w, d, h, wallColor, floorColor, plan }) {
   if (type === 'column') return item.shape.round
     ? <Cyl r={Math.min(w, d) / 2} h={h} y={h / 2} color={color} rough={0.85} seg={22} />
     : <Box w={w} h={h} d={d} y={h / 2} color={color} rough={0.85} />;
-  if (type === 'stairs') return <Stairs w={w} d={d} shape={item.shape} color={color} />;
+  if (type === 'stairs') return <Stairs w={w} d={d} h={h} shape={item.shape} color={color} />;
   if (type === 'ramp') return <Ramp w={w} d={d} h={h} color={color} />;
   if (type === 'door') return <Door w={w} d={d} h={h} shape={item.shape} color={color} parts={item.parts} />;
   if (type === 'window') return <Window w={w} d={d} h={h} shape={item.shape} color={color} parts={item.parts} sill={item.elevation} />;

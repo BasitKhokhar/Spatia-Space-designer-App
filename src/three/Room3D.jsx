@@ -1,6 +1,6 @@
 import { useRef, useMemo, useEffect } from 'react';
 import { useFrame, useThree } from '@react-three/fiber/native';
-import { Shape, DoubleSide } from 'three';
+import { Shape, Path, DoubleSide } from 'three';
 
 import { LIGHTING } from './lighting';
 import Environment from './Environment';
@@ -9,7 +9,7 @@ import { getMaterial } from './materials/library';
 import { tileOf } from './materials/manifest';
 import { PlacedItem, Door } from './models';
 import { floorMaterialById } from '@/data/materials';
-import { wallLength, itemWallOpenings } from '@/domain/floorplan';
+import { wallLength, itemWallOpenings, itemDims } from '@/domain/floorplan';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -189,6 +189,8 @@ const TRIM_COLOR = '#F4F1EA';
 
 const BASEBOARD_H = 0.1; // skirting height
 const BASEBOARD_PROUD = 0.015; // how far it stands off the wall face, per side
+const CROWN_H = 0.06; // cornice height where the wall meets the ceiling
+const CROWN_PROUD = 0.012;
 const CASING_W = 0.06; // door/window architrave width
 const CASING_PROUD = 0.02;
 
@@ -232,6 +234,40 @@ function Casing({ localX, w, t, sill, height, window: isWindow }) {
         />
       ) : null}
     </group>
+  );
+}
+
+const FASCIA_H = 0.18; // roofline cap height
+const FASCIA_D = 0.22; // how far it stands proud of the wall face
+
+// A capping band around the top floor's roofline, closing the seam where the
+// walls would otherwise stop dead flush with the roof slab's edge — every real
+// house has some fascia/parapet detail there instead of a bare box edge.
+// Registered with the same `outward`-tagged userData as WallMesh, one level up
+// in the same wallsRef group, so it cuts away with the walls beneath it instead
+// of floating in view once the near walls are hidden.
+function RoofFascia({ wall, cx, cz, y, color, outward }) {
+  const ax = wall.x1 - cx;
+  const az = wall.y1 - cz;
+  const bx = wall.x2 - cx;
+  const bz = wall.y2 - cz;
+  const L = wallLength(wall) || 0.01;
+  const t = wall.thickness || 0.12;
+  const angle = Math.atan2(bz - az, bx - ax);
+  const mx = (ax + bx) / 2;
+  const mz = (az + bz) / 2;
+  const [nx, nz] = outward;
+  // Sits proud of the outer wall face, slightly overlapping it so no gap shows.
+  const offset = t / 2 + FASCIA_D / 2 - 0.02;
+  return (
+    <mesh
+      position={[mx + nx * offset, y + FASCIA_H / 2, mz + nz * offset]}
+      rotation={[0, -angle, 0]}
+      receiveShadow
+      userData={{ outward }}
+      geometry={boxGeo(L + t, FASCIA_H, FASCIA_D)}
+      material={getMaterial({ id: 'concrete', color, rough: 0.8 })}
+    />
   );
 }
 
@@ -299,6 +335,22 @@ function WallMesh({ wall, cx, cz, height, color, openings, outward, mat = 'plast
             position={[(u0 + u1) / 2 - L / 2, BASEBOARD_H / 2, 0]}
             receiveShadow
             geometry={boxGeo(w, BASEBOARD_H, t + BASEBOARD_PROUD * 2)}
+            material={getMaterial({ id: TRIM_MAT, color: TRIM_COLOR, rough: 0.7 })}
+          />
+        );
+      })}
+
+      {/* cornice, mirroring the skirting at the top of the same solid spans — the
+          other seam a bare box-room leaves visibly unfinished. */}
+      {spans.map(([u0, u1], i) => {
+        const w = u1 - u0;
+        if (w <= 0.001) return null;
+        return (
+          <mesh
+            key={`cr${i}`}
+            position={[(u0 + u1) / 2 - L / 2, height - CROWN_H / 2, 0]}
+            receiveShadow
+            geometry={boxGeo(w, CROWN_H, t + CROWN_PROUD * 2)}
             material={getMaterial({ id: TRIM_MAT, color: TRIM_COLOR, rough: 0.7 })}
           />
         );
@@ -441,6 +493,76 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
     [plan.footprint, plan.width, plan.length, cx, cz]
   );
 
+  // Stairs that climb the full storey height need a stairwell opening in the
+  // ceiling above them — a real house's ceiling doesn't run solid through a
+  // staircase. Only floor-to-ceiling flights qualify (a short internal step or
+  // landing shouldn't punch a hole), matched against this floor's own wall
+  // height with a little slack for stairs authored at a slightly different h.
+  const stairHoleItems = useMemo(
+    () =>
+      (plan.furniture || []).filter((f) => {
+        if (!f.structure || f.shape?.type !== 'stairs') return false;
+        return itemDims(f).h >= h - 0.1;
+      }),
+    [plan.furniture, h]
+  );
+
+  // The ceiling shares the floor's outline but gets its own Shape (with holes)
+  // so the floor slab underneath is never affected by a cutout above it. Reuses
+  // `floorShape` untouched when there is nothing to cut — the common case.
+  const ceilingShape = useMemo(() => {
+    if (!stairHoleItems.length) return floorShape;
+    const base = floorShape
+      ? floorShape.clone()
+      : (() => {
+          const s = new Shape();
+          s.moveTo(-cx, -cz);
+          s.lineTo(cx, -cz);
+          s.lineTo(cx, cz);
+          s.lineTo(-cx, cz);
+          s.closePath();
+          return s;
+        })();
+    const pad = 0.1; // clearance beyond the stair's own footprint, like a real stairwell trim
+    stairHoleItems.forEach((f) => {
+      const dims = itemDims(f);
+      const hw = dims.w / 2 + pad;
+      const hd = dims.d / 2 + pad;
+      const theta = (-f.rotation * Math.PI) / 180;
+      const cos = Math.cos(theta);
+      const sin = Math.sin(theta);
+      const corners = [
+        [-hw, -hd],
+        [hw, -hd],
+        [hw, hd],
+        [-hw, hd],
+      ].map(([lx, lz]) => {
+        const dx = lx * cos + lz * sin;
+        const dz = -lx * sin + lz * cos;
+        const planX = f.x + dx;
+        const planY = f.y + dz;
+        return [planX - cx, cz - planY];
+      });
+      const hole = new Path();
+      hole.moveTo(corners[0][0], corners[0][1]);
+      for (let i = 1; i < corners.length; i++) hole.lineTo(corners[i][0], corners[i][1]);
+      hole.closePath();
+      base.holes.push(hole);
+    });
+    return base;
+  }, [floorShape, stairHoleItems, cx, cz]);
+
+  const ceilingShapeKey = useMemo(() => {
+    if (!stairHoleItems.length) return floorShapeKey;
+    const holesKey = stairHoleItems
+      .map((f) => {
+        const dims = itemDims(f);
+        return `${f.id}:${Math.round(f.x * 1000)},${Math.round(f.y * 1000)},${Math.round(dims.w * 1000)},${Math.round(dims.d * 1000)},${Math.round(f.rotation || 0)}`;
+      })
+      .join('|');
+    return `${floorShapeKey}+holes:${holesKey}`;
+  }, [floorShapeKey, stairHoleItems]);
+
   // A blank plan (no footprint and no perimeter walls) renders no floor slab or
   // ceiling — it reads as empty space. Placed structures bring their own floor +
   // walls (see RoomShell), so a room only appears once the user adds one.
@@ -485,6 +607,12 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
             <WallMesh key={w.id} wall={w} cx={cx} cz={cz} height={h} color={wallColor} mat={wallMatId} openings={openingsFor(w.id)} outward={outwardFor(w)} />
           ))}
 
+          {isRoof
+            ? perimeter.map((w) => (
+                <RoofFascia key={`fascia-${w.id}`} wall={w} cx={cx} cz={cz} y={h} color={ceilingColor} outward={outwardFor(w)} />
+              ))
+            : null}
+
           {/* ceiling / roof slab, capping the walls at their full height. Only
               rendered when the camera is inside this floor (culled per-frame). */}
           <mesh
@@ -493,8 +621,8 @@ function FloorLevel({ plan, yOffset = 0, visible = true, preset, wallsRegistry, 
             receiveShadow
             userData={{ horizontal: true, worldBaseY: yOffset, worldTopY: yOffset + h, footprintXZ }}
             geometry={
-              floorShape
-                ? shapeGeo(floorShape, floorShapeKey, tileOf(ceilingMatId))
+              ceilingShape
+                ? shapeGeo(ceilingShape, ceilingShapeKey, tileOf(ceilingMatId))
                 : planeGeo(plan.width, plan.length, tileOf(ceilingMatId))
             }
             material={getMaterial({
