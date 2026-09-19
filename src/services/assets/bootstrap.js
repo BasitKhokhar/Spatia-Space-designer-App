@@ -99,7 +99,12 @@ export function startBulkDownload(kinds) {
   registerNotificationActions();
   // Fire-and-forget: the notification is a progress DISPLAY, never a gate. A
   // user who denies it still gets the full download.
-  notification.requestPermissionIfNeeded();
+  notification.requestPermissionIfNeeded().then(() => {
+    const state = assetManager.getState();
+    if (state.status === 'running' || state.status === 'paused') {
+      notification.showProgress(state);
+    }
+  });
   assetManager.startFullDownload(items, kinds);
   return 'started';
 }
